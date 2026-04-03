@@ -1,0 +1,713 @@
+/* ═══════════════════════════════════════════════════════════════════
+   DFD ThreatCanvas — Post-Analysis Interactive Editor + Threat Panel
+   Inspired by SecureFlag ThreatCanvas
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Editor Layout: 3-column (threats | canvas | properties) ── */
+.dfd-editor-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 500px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+/* ── Top Toolbar ── */
+.dfd-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.dfd-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-right: 1px solid var(--border);
+}
+.dfd-toolbar-group:last-child { border-right: none; }
+
+.dfd-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.dfd-tool-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+.dfd-tool-btn.active { background: rgba(168,116,192,0.12); color: var(--accent); border-color: rgba(168,116,192,0.32); }
+.dfd-tool-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+.dfd-tool-btn span { pointer-events: none; }
+.dfd-btn-danger:hover { color: #e05252; background: rgba(224,82,82,0.1); }
+
+/* ── Main Body: 3 columns ── */
+.dfd-editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Threat Sidebar (Left) ── */
+.dfd-threat-sidebar {
+  width: 320px;
+  min-width: 260px;
+  max-width: 400px;
+  background: var(--bg2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: width 0.2s;
+}
+.dfd-threat-sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+  overflow: hidden;
+}
+
+.dfd-threat-sidebar-header {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.dfd-threat-sidebar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.dfd-threat-sidebar-title .badge {
+  background: rgba(224,82,82,0.15);
+  color: #e05252;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.dfd-threat-filter {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.dfd-threat-filter-btn {
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 0.68rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dfd-threat-filter-btn:hover { border-color: var(--text); color: var(--text); }
+.dfd-threat-filter-btn.active { background: rgba(168,116,192,0.12); border-color: var(--accent); color: var(--accent); }
+
+.dfd-threat-search {
+  width: 100%;
+  padding: 6px 10px;
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.76rem;
+  outline: none;
+}
+.dfd-threat-search::placeholder { color: var(--text2); opacity: 0.6; }
+.dfd-threat-search:focus { border-color: var(--accent); }
+
+.dfd-threat-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+/* Component group */
+.dfd-threat-group {
+  margin-bottom: 6px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+.dfd-threat-group.highlighted {
+  border-color: var(--accent);
+  box-shadow: 0 0 8px rgba(168,116,192,0.18);
+}
+
+.dfd-threat-group-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  user-select: none;
+}
+.dfd-threat-group-header:hover { background: rgba(255,255,255,0.03); }
+
+.dfd-threat-group-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 0.7rem;
+}
+.dfd-threat-group-icon.process { background: rgba(90,90,90,0.3); color: #999; }
+.dfd-threat-group-icon.external_entity { background: rgba(196,148,58,0.15); color: #c4943a; }
+.dfd-threat-group-icon.data_store { background: var(--accent-dim); color: var(--accent); }
+
+.dfd-threat-group-name {
+  flex: 1;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dfd-threat-group-count {
+  font-size: 0.7rem;
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-weight: 600;
+}
+.dfd-threat-group-count.critical { background: rgba(224,82,82,0.15); color: #e05252; }
+.dfd-threat-group-count.high { background: rgba(232,155,58,0.15); color: #e89b3a; }
+.dfd-threat-group-count.medium { background: rgba(212,182,76,0.15); color: #d4b64c; }
+.dfd-threat-group-count.low { background: var(--accent-dim); color: var(--accent); }
+
+.dfd-threat-group-chevron {
+  color: var(--text2);
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+.dfd-threat-group.expanded .dfd-threat-group-chevron { transform: rotate(90deg); }
+
+.dfd-threat-group-body {
+  display: none;
+  padding: 0 8px 8px;
+}
+.dfd-threat-group.expanded .dfd-threat-group-body { display: block; }
+
+/* Individual threat card */
+.dfd-threat-card {
+  padding: 8px 10px;
+  margin-top: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dfd-threat-card:hover { border-color: var(--text2); background: rgba(255,255,255,0.03); }
+.dfd-threat-card.selected { border-color: var(--accent); background: rgba(168,116,192,0.08); }
+
+.dfd-threat-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.dfd-threat-severity {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-top: 4px;
+}
+.dfd-threat-severity.Critical { background: #e05252; box-shadow: 0 0 6px rgba(224,82,82,0.4); }
+.dfd-threat-severity.High { background: #e89b3a; }
+.dfd-threat-severity.Medium { background: #d4b64c; }
+.dfd-threat-severity.Low { background: var(--accent); }
+
+.dfd-threat-card-title {
+  font-size: 0.74rem;
+  color: var(--text);
+  line-height: 1.35;
+  flex: 1;
+}
+
+.dfd-threat-card-meta {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.dfd-threat-tag {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.dfd-threat-tag.stride { background: rgba(100,149,237,0.15); color: #6495ed; }
+.dfd-threat-tag.dread { background: rgba(224,82,82,0.1); color: #e05252; }
+.dfd-threat-tag.priority { background: rgba(212,182,76,0.12); color: #d4b64c; }
+
+.dfd-threat-card-mitigation {
+  font-size: 0.68rem;
+  color: var(--text2);
+  margin-top: 4px;
+  line-height: 1.3;
+  display: none;
+}
+.dfd-threat-card.selected .dfd-threat-card-mitigation { display: block; }
+
+/* ── Canvas ── */
+.dfd-canvas-container {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  background: #161616;
+  min-width: 300px;
+}
+
+.dfd-canvas-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  cursor: grab;
+}
+.dfd-canvas-svg:active { cursor: grabbing; }
+.dfd-canvas-svg.tool-connect { cursor: crosshair; }
+
+.dfd-canvas-bg { opacity: 0.8; }
+
+/* ── SVG Nodes ── */
+.dfd-node { cursor: pointer; }
+.dfd-node:hover { filter: brightness(1.1); }
+.dfd-node-label {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  fill: #e0e0e0;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+/* ── SVG Edges ── */
+.dfd-edge { cursor: pointer; }
+.dfd-edge-path {
+  fill: none;
+  stroke: #555;
+  stroke-width: 1.5;
+  marker-end: url(#arrowhead);
+  transition: stroke 0.15s;
+}
+.dfd-edge:hover .dfd-edge-path { stroke: #888; stroke-width: 2; }
+.dfd-edge.selected .dfd-edge-path { stroke: var(--accent); stroke-width: 2.5; marker-end: url(#arrowhead-selected); }
+.dfd-edge-label {
+  font-size: 10px;
+  fill: #888;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+/* ── SVG Boundaries ── */
+.dfd-boundary rect {
+  fill: rgba(232,155,58,0.04);
+  stroke: #e89b3a;
+  stroke-width: 1.2;
+  stroke-dasharray: 6 3;
+  rx: 8;
+  ry: 8;
+}
+.dfd-boundary.selected rect { stroke-width: 2; stroke: var(--accent); }
+.dfd-boundary-label {
+  font-size: 11px;
+  fill: #e89b3a;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+/* ── Threat badges on nodes ── */
+.dfd-threat-badge { cursor: pointer; }
+.dfd-threat-badge-bg {
+  rx: 8;
+  ry: 8;
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3));
+}
+.dfd-threat-badge-text {
+  fill: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+  pointer-events: none;
+}
+
+/* ── Node highlight (when hovered/selected from threat list) ── */
+.dfd-node.threat-highlight rect,
+.dfd-node.threat-highlight .dfd-node-body rect {
+  stroke: #e05252 !important;
+  stroke-width: 2.5 !important;
+}
+.dfd-node.threat-highlight { animation: dfd-pulse 1.5s ease-in-out infinite; }
+@keyframes dfd-pulse {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.3) drop-shadow(0 0 8px rgba(224,82,82,0.4)); }
+}
+
+/* ── Properties Panel (Right) ── */
+.dfd-properties {
+  width: 260px;
+  min-width: 200px;
+  background: var(--bg2);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+  transition: width 0.2s;
+}
+.dfd-properties.collapsed { width: 0; min-width: 0; border-left: none; overflow: hidden; }
+
+.dfd-props-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.dfd-props-title { font-size: 0.8rem; font-weight: 600; color: var(--text); }
+.dfd-props-close {
+  background: none;
+  border: none;
+  color: var(--text2);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+}
+.dfd-props-close:hover { color: var(--text); }
+
+.dfd-props-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+.dfd-props-empty {
+  color: var(--text2);
+  font-size: 0.76rem;
+  text-align: center;
+  padding: 30px 12px;
+}
+
+.dfd-props-field {
+  margin-bottom: 12px;
+}
+.dfd-props-label {
+  font-size: 0.7rem;
+  color: var(--text2);
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.dfd-props-input,
+.dfd-props-select,
+.dfd-props-textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 0.76rem;
+  outline: none;
+  box-sizing: border-box;
+}
+.dfd-props-input:focus,
+.dfd-props-select:focus,
+.dfd-props-textarea:focus { border-color: var(--accent); }
+.dfd-props-textarea { resize: vertical; min-height: 60px; }
+
+/* ── Bottom Panel (Mermaid + Description) ── */
+.dfd-bottom-panel {
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: height 0.2s;
+}
+.dfd-bottom-panel.collapsed { height: 32px !important; }
+
+.dfd-bottom-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  min-height: 32px;
+}
+.dfd-bottom-tab {
+  padding: 6px 14px;
+  font-size: 0.72rem;
+  color: var(--text2);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s;
+}
+.dfd-bottom-tab:hover { color: var(--text); }
+.dfd-bottom-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+.dfd-bottom-toggle {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 0.68rem;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+}
+.dfd-bottom-toggle:hover { color: var(--text); }
+
+.dfd-bottom-content {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dfd-code-editor,
+.dfd-description-area {
+  width: 100%;
+  height: 100%;
+  padding: 10px 14px;
+  border: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Fira Code', 'JetBrains Mono', monospace;
+  font-size: 0.74rem;
+  line-height: 1.5;
+  resize: none;
+  outline: none;
+  box-sizing: border-box;
+}
+
+/* ── Zoom Controls ── */
+.dfd-zoom-controls {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 10;
+}
+.dfd-zoom-btn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg2);
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+.dfd-zoom-btn:hover { background: var(--bg); border-color: var(--text2); }
+.dfd-zoom-level {
+  font-size: 0.68rem;
+  color: var(--text2);
+  padding: 2px 0;
+}
+
+/* ── Context Menu ── */
+.dfd-context-menu {
+  position: fixed;
+  min-width: 160px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+  z-index: 1000;
+  padding: 4px;
+  animation: dfd-ctx-in 0.12s ease-out;
+}
+@keyframes dfd-ctx-in { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+.dfd-context-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 0.76rem;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 5px;
+  transition: background 0.1s;
+}
+.dfd-context-item:hover { background: rgba(255,255,255,0.06); }
+.dfd-context-item.danger { color: #e05252; }
+.dfd-context-item.danger:hover { background: rgba(224,82,82,0.1); }
+.dfd-context-sep { height: 1px; background: var(--border); margin: 3px 8px; }
+
+/* ── Empty State ── */
+.dfd-empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+}
+.dfd-empty-icon { width: 64px; height: 64px; color: var(--text2); opacity: 0.3; margin-bottom: 16px; }
+.dfd-empty-title { font-size: 0.95rem; color: var(--text2); margin-bottom: 6px; opacity: 0.5; }
+.dfd-empty-desc { font-size: 0.78rem; color: var(--text2); opacity: 0.35; text-align: center; max-width: 320px; }
+
+/* ── Toast ── */
+.dfd-toast {
+  position: absolute;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  padding: 8px 18px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 0.76rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: all 0.25s;
+  z-index: 20;
+  white-space: nowrap;
+}
+.dfd-toast.visible { opacity: 1; transform: translateX(-50%) translateY(0); pointer-events: auto; }
+
+/* ── Sidebar toggle btn ── */
+.dfd-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg2);
+  color: var(--text2);
+  cursor: pointer;
+  font-size: 10px;
+  margin-left: 4px;
+}
+.dfd-sidebar-toggle:hover { color: var(--text); border-color: var(--text2); }
+
+/* ── Responsive ── */
+@media (max-width: 900px) {
+  .dfd-threat-sidebar { width: 220px; min-width: 180px; }
+  .dfd-properties { width: 200px; min-width: 160px; }
+}
+@media (max-width: 700px) {
+  .dfd-threat-sidebar { display: none; }
+  .dfd-properties { display: none; }
+}
+
+/* ══════════════════════════════════════
+   Connection Ports
+   ══════════════════════════════════════ */
+.dfd-port {
+  fill: var(--accent);
+  stroke: #1b1b1b;
+  stroke-width: 1.5;
+  opacity: 0;
+  cursor: crosshair;
+  transition: opacity 0.15s ease;
+  pointer-events: all;
+}
+.dfd-node:hover .dfd-port,
+.dfd-port:hover {
+  opacity: 1;
+}
+.dfd-port:hover {
+  r: 5.5;
+  filter: drop-shadow(0 0 4px rgba(168,116,192,0.5));
+}
+
+/* ══════════════════════════════════════
+   Minimap
+   ══════════════════════════════════════ */
+.dfd-minimap {
+  position: absolute;
+  bottom: 60px;
+  right: 12px;
+  width: 200px;
+  height: 140px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  overflow: hidden;
+  z-index: 12;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+  cursor: pointer;
+}
+.dfd-minimap:hover {
+  opacity: 1;
+}
+.dfd-minimap canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.dfd-minimap-viewport {
+  position: absolute;
+  border: 1.5px solid var(--accent);
+  border-radius: 2px;
+  pointer-events: none;
+  background: var(--accent-dim);
+}
+
+/* ══════════════════════════════════════
+   Edge Label Pill
+   ══════════════════════════════════════ */
+.dfd-edge-label {
+  fill: #a0a0a0;
+  font-size: 10px;
+  text-anchor: middle;
+  dominant-baseline: central;
+  font-family: system-ui, -apple-system, sans-serif;
+  pointer-events: none;
+}
+

@@ -1,0 +1,89 @@
+{
+  "_comment": "Copy this file to config.json and adjust to your hardware. Run 'python cli.py init' to auto-generate a config tuned to your system RAM.",
+
+  "quick_thinker": {
+    "provider": "ollama",
+    "model": "qwen3.5:4b",
+    "temperature": 0.3,
+    "base_url": "http://localhost:11434",
+    "timeout": 300,
+    "num_ctx": 32768,
+    "num_predict": 8192,
+    "think": false
+  },
+
+  "deep_thinker": {
+    "provider": "ollama",
+    "model": "qwen3.5:4b",
+    "temperature": 0.2,
+    "base_url": "http://localhost:11434",
+    "timeout": 600,
+    "num_ctx": 32768,
+    "num_predict": 8192,
+    "think": false
+  },
+
+  "stride_thinker": {
+    "provider": "ollama",
+    "model": "qwen3.5:4b",
+    "temperature": 0.3,
+    "base_url": "http://localhost:11434",
+    "timeout": 600,
+    "num_ctx": 32768,
+    "num_predict": 8192,
+    "think": false
+  },
+
+  "vlm": {
+    "provider": "ollama",
+    "model": "qwen3.5:4b",
+    "temperature": 0.1,
+    "base_url": "http://localhost:11434",
+    "timeout": 600,
+    "vlm_image_timeout": 300,
+    "num_ctx": 16384,
+    "num_predict": 8192,
+    "think": false
+  },
+
+  "rag": {
+    "knowledge_base_path": "./knowledge_base",
+    "vector_store_path": "./data/vector_stores",
+    "page_index_path": "./data/page_indices",
+    "embedding_provider": "ollama",
+    "embedding_model": "nomic-embed-text",
+    "chunk_size": 1000,
+    "chunk_overlap": 200,
+    "retrieval_top_k": 5,
+    "tree_summaries": false,
+    "max_summary_nodes": 50
+  },
+
+  "pipeline": {
+    "max_debate_rounds": 4,
+    "max_validation_iterations": 2,
+    "enable_maestro": true,
+    "output_format": "both",
+    "output_language": "es",
+    "self_reflection_enabled": false,
+    "min_threats": 8,
+    "max_threats": 40,
+    "target_threats": 20,
+    "threat_categories": ["auto"],
+    "analyst_execution_mode": "cascade",
+    "max_parallel_analysts": 1
+  },
+
+  "memory": {
+    "enabled": true,
+    "db_path": "./data/memory.db",
+    "journal_path": "./data/journal.db"
+  },
+
+  "security": {
+    "max_input_length": 100000,
+    "max_upload_size_mb": 10
+  },
+
+  "output_dir": "./output"
+}

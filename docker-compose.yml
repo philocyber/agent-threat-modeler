@@ -1,0 +1,58 @@
+# ─────────────────────────────────────────────────────────────
+# AgenticTM — docker-compose stack
+#
+# Usage:
+#   docker compose up -d          # start both services
+#   docker compose logs -f app    # follow app logs
+#   docker compose down            # stop everything
+# ─────────────────────────────────────────────────────────────
+
+services:
+  # ── Ollama LLM server ──
+  ollama:
+    image: ollama/ollama:latest
+    container_name: agentictm-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    # Uncomment below for NVIDIA GPU support:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    restart: unless-stopped
+
+  # ── AgenticTM application ──
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentictm-app
+    ports:
+      - "8000:8000"
+    environment:
+      - AGENTICTM_OLLAMA_URL=http://ollama:11434
+      - AGENTICTM_OUTPUT_DIR=/app/output
+      # Uncomment and set an API key to enable auth:
+      # - AGENTICTM_API_KEY=your-secret-key-here
+    volumes:
+      - ./output:/app/output
+      - ./data:/app/data
+      - ./knowledge_base:/app/knowledge_base
+      - ./rag:/app/rag
+    depends_on:
+      - ollama
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
+
+volumes:
+  ollama_models:

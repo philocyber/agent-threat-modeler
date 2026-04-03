@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="760" viewBox="0 0 1400 760" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1400" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0b1220"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#8b5cf6"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <filter id="shadow" x="0" y="0" width="200%" height="200%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+
+  <rect width="1400" height="760" fill="url(#bg)"/>
+
+  <rect x="36" y="28" width="1328" height="704" rx="18" fill="#0f172a" stroke="#1f2937"/>
+  <rect x="36" y="28" width="1328" height="56" rx="18" fill="#111827"/>
+  <circle cx="66" cy="56" r="7" fill="#ef4444"/>
+  <circle cx="90" cy="56" r="7" fill="#f59e0b"/>
+  <circle cx="114" cy="56" r="7" fill="#10b981"/>
+
+  <text x="150" y="62" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="20" font-weight="600">AgenticTM — Threat Modeling Workspace</text>
+
+  <rect x="64" y="112" width="310" height="588" rx="14" fill="#111827" stroke="#1f2937"/>
+  <text x="84" y="146" fill="#e2e8f0" font-family="Segoe UI, Inter, Arial" font-size="17" font-weight="700">Pipeline</text>
+
+  <rect x="84" y="168" width="270" height="52" rx="10" fill="#1e293b"/>
+  <text x="98" y="201" fill="#a5b4fc" font-family="Segoe UI, Inter, Arial" font-size="14" font-weight="600">Fase I · Architecture Parser</text>
+
+  <rect x="84" y="236" width="270" height="168" rx="10" fill="#1e293b"/>
+  <text x="98" y="267" fill="#86efac" font-family="Segoe UI, Inter, Arial" font-size="14" font-weight="600">Fase II · Analysts</text>
+  <text x="98" y="292" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">• STRIDE</text>
+  <text x="98" y="314" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">• PASTA</text>
+  <text x="98" y="336" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">• Attack Tree</text>
+  <text x="98" y="358" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">• MAESTRO</text>
+  <text x="98" y="380" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">• AI Threat</text>
+
+  <rect x="84" y="420" width="270" height="86" rx="10" fill="#1e293b"/>
+  <text x="98" y="450" fill="#fca5a5" font-family="Segoe UI, Inter, Arial" font-size="14" font-weight="600">Fase III · Debate</text>
+  <text x="98" y="473" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">Red Team ↔ Blue Team</text>
+
+  <rect x="84" y="522" width="270" height="76" rx="10" fill="#1e293b"/>
+  <text x="98" y="551" fill="#c4b5fd" font-family="Segoe UI, Inter, Arial" font-size="14" font-weight="600">Fase IV · Synthesis + DREAD</text>
+
+  <rect x="402" y="112" width="924" height="588" rx="14" fill="#0b1324" stroke="#1f2937"/>
+
+  <text x="432" y="152" fill="#e2e8f0" font-family="Segoe UI, Inter, Arial" font-size="20" font-weight="700">Threats Overview</text>
+  <rect x="432" y="172" width="860" height="2" fill="#1f2937"/>
+
+  <rect x="432" y="196" width="270" height="148" rx="12" fill="#111827" stroke="#1f2937"/>
+  <text x="452" y="226" fill="#93c5fd" font-family="Segoe UI, Inter, Arial" font-size="15" font-weight="700">High Priority</text>
+  <text x="452" y="252" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">WEB-01 SQL Injection</text>
+  <text x="452" y="274" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">INF-02 IAM Over-privilege</text>
+  <text x="452" y="296" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">LLM-01 Prompt Injection</text>
+
+  <rect x="722" y="196" width="270" height="148" rx="12" fill="#111827" stroke="#1f2937"/>
+  <text x="742" y="226" fill="#fca5a5" font-family="Segoe UI, Inter, Arial" font-size="15" font-weight="700">Debate Summary</text>
+  <text x="742" y="252" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">Round 1-2 converged</text>
+  <text x="742" y="274" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">+2 new attack chains</text>
+  <text x="742" y="296" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">Confidence improved</text>
+
+  <rect x="1012" y="196" width="280" height="148" rx="12" fill="#111827" stroke="#1f2937"/>
+  <text x="1032" y="226" fill="#86efac" font-family="Segoe UI, Inter, Arial" font-size="15" font-weight="700">Outputs</text>
+  <text x="1032" y="252" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">threat_model.csv</text>
+  <text x="1032" y="274" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">complete_report.md</text>
+  <text x="1032" y="296" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="13">dfd.mermaid</text>
+
+  <rect x="432" y="368" width="860" height="292" rx="12" fill="#111827" stroke="#1f2937"/>
+  <text x="452" y="400" fill="#e2e8f0" font-family="Segoe UI, Inter, Arial" font-size="16" font-weight="700">Execution Flow</text>
+
+  <g filter="url(#shadow)">
+    <rect x="452" y="426" width="150" height="54" rx="10" fill="url(#accent)"/>
+    <text x="468" y="460" fill="#fff" font-family="Segoe UI, Inter, Arial" font-size="13" font-weight="700">Architecture</text>
+
+    <rect x="640" y="426" width="150" height="54" rx="10" fill="url(#accent)"/>
+    <text x="676" y="460" fill="#fff" font-family="Segoe UI, Inter, Arial" font-size="13" font-weight="700">Analysts</text>
+
+    <rect x="828" y="426" width="150" height="54" rx="10" fill="url(#accent)"/>
+    <text x="870" y="460" fill="#fff" font-family="Segoe UI, Inter, Arial" font-size="13" font-weight="700">Debate</text>
+
+    <rect x="1016" y="426" width="150" height="54" rx="10" fill="url(#accent)"/>
+    <text x="1038" y="460" fill="#fff" font-family="Segoe UI, Inter, Arial" font-size="13" font-weight="700">Synthesis</text>
+  </g>
+
+  <path d="M602 453H640" stroke="#64748b" stroke-width="3"/>
+  <path d="M790 453H828" stroke="#64748b" stroke-width="3"/>
+  <path d="M978 453H1016" stroke="#64748b" stroke-width="3"/>
+
+  <text x="452" y="526" fill="#94a3b8" font-family="Segoe UI, Inter, Arial" font-size="13">Hybrid mode · max_parallel_analysts=2 · Local-first LLMs</text>
+  <text x="452" y="550" fill="#94a3b8" font-family="Segoe UI, Inter, Arial" font-size="13">RAG stores: books, research, risks, previous_tms, ai_threats</text>
+
+  <rect x="1110" y="640" width="182" height="30" rx="15" fill="#1e293b" stroke="#334155"/>
+  <text x="1146" y="660" fill="#cbd5e1" font-family="Segoe UI, Inter, Arial" font-size="12">AgenticTM Preview</text>
+</svg>

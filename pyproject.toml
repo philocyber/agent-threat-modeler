@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentictm"
+version = "0.3.2"
+description = "Multi-agent Threat Modeling system powered by LangChain/LangGraph + Ollama"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+
+dependencies = [
+    "langchain>=0.3",
+    "langchain-ollama>=0.3",
+    "langchain-community>=0.3",
+    "langchain-chroma>=0.2",
+    "langgraph>=0.3",
+    "chromadb>=0.5",
+    "PyMuPDF>=1.24",
+    "pydantic>=2",
+    "pydantic-settings>=2.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "python-multipart>=0.0.9",
+    "sse-starlette>=2.0",
+    "typer>=0.12",
+    "rich>=13",
+    "tenacity>=8.2",
+    "aiosqlite>=0.20",
+]
+
+[project.optional-dependencies]
+cloud = [
+    "langchain-anthropic>=0.3",
+    "langchain-google-genai>=2",
+    "langchain-openai>=0.3",
+]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
+    "httpx>=0.27",
+    "ruff>=0.5",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+agentictm = "cli:app"
+
+[tool.setuptools.packages.find]
+include = ["agentictm*"]
+
+[tool.ruff]
+line-length = 250
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
