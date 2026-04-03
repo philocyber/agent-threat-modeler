@@ -24,6 +24,7 @@ knowledge_base/previous_threat_models/*
 knowledge_base/ai_threats/*.pdf
 knowledge_base/ai_threats/*.json
 knowledge_base/risks_mitigations/*.csv
+!knowledge_base/risks_mitigations/threats.csv
 knowledge_base/risks_mitigations/*.json
 
 # RAG data directory (user-specific CSVs and threat models)
