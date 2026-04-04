@@ -1,6 +1,6 @@
 # 11 — Mejoras y Roadmap
 
-> Estado actual, mejoras implementadas, pendientes, y visión proyecto enterprise.
+> Estado actual, mejoras implementadas, pendientes y visión enterprise.
 
 ---
 
@@ -65,7 +65,7 @@
 
 | ID | Mejora | Esfuerzo | Descripción |
 |----|--------|----------|-------------|
-| **H1** | Diferenciación real quick vs deep | Bajo | Usar modelo más capaz para deep (actual: ambos qwen3:8b en config) |
+| **H1** | Diferenciación real quick vs deep | ~~Bajo~~ ✅ | ~~Usar modelo más capaz para deep~~ — Resuelto: 4 tiers (qwen3.5:4b / qwen3.5:9b / qwen3.5:27b) |
 | **H2** | Unificación idioma en prompts | Medio | 6 agentes tienen prompts en inglés, 4 en español. Unificar a español |
 | **H3** | Prompt Synthesizer para ≥15 amenazas | Medio | Instruir mínimo 15 amenazas con descripciones verbose |
 | **H4** | Schema unificado de amenazas (Pydantic) | Alto | Definir `Threat` model usado por todos los agentes |
@@ -109,7 +109,7 @@ Hallazgos principales:
 - ✅ Fan-out/fan-in de LangGraph: brillante
 - ✅ RAG dual (tree + vector): innovador
 - ⚠️ Debate estático (fixed rounds) → **Resuelto en v0.3.2**
-- ⚠️ Mismo modelo quick = deep → **Parcialmente resuelto** (4 tiers configurados, deep usa MoE)
+- ⚠️ Mismo modelo quick = deep → **Resuelto** (4 tiers: qwen3.5:4b/9b/27b)
 - ⚠️ Spanglish en output → **Resuelto** (Output Localizer)
 
 ### Análisis Objetivo (doc 14)
@@ -117,7 +117,7 @@ Hallazgos principales:
 **Veredicto**: "Fan-out brillante, debate estático, Spanglish degradation"
 
 - El "elephant in the room": mismo modelo para todo → **Resuelto** con 4 tiers
-- STRIDE agent con chain-of-thought visible → **Implementado** (DeepSeek-R1 como default)
+- STRIDE agent con chain-of-thought visible → **Implementado** (Qwen3.5:9b como default, think mode configurable)
 - Necesidad de convergencia en debate → **Implementado** en v0.3.2
 
 ### Evaluación Independiente (doc 15)
@@ -129,52 +129,7 @@ Hallazgos principales:
 - Fase 2 (calidad): H1-H7 parcialmente implementados
 - Fase 3 (UX): F1-F7 ✅
 - Fase 4 (producción): H4, M1, L7 pendientes
-- Fase 5 (enterprise): L1-L10 para proyecto enterprise
-
----
-
-## Visión proyecto enterprise — Enterprise Future
-
-El RFC "[proyecto enterprise Threat Modeling](../docs/RFC_%20proyecto enterprise%20Threat%20Modeling.md)" describe la evolución enterprise:
-
-```mermaid
-graph TB
-    subgraph "AgenticTM (Actual)"
-        CLI["CLI + API"]
-        OLLAMA["Ollama Local"]
-        CHROMA["ChromaDB"]
-        FS["Filesystem Output"]
-    end
-
-    subgraph "proyecto enterprise (Futuro)"
-        NEXT["Next.js Dashboard"]
-        VLLM["vLLM Cluster"]
-        PG["PostgreSQL + pgvector"]
-        S3["S3 Artifact Storage"]
-        AUTH["Keycloak SSO"]
-        JIRA["Jira Integration"]
-        SIEM["SIEM/SOAR Webhooks"]
-    end
-
-    CLI -.->|"evoluciona a"| NEXT
-    OLLAMA -.->|"escala a"| VLLM
-    CHROMA -.->|"migra a"| PG
-    FS -.->|"migra a"| S3
-
-    style CLI fill:#1a3c34,stroke:#10b981,color:#fff
-    style NEXT fill:#2d1b4e,stroke:#a773bf,color:#fff
-```
-
-| Componente | AgenticTM (Actual) | proyecto enterprise (Futuro) |
-|------------|-------------------|-------------------|
-| **Frontend** | SPA HTML/JS | Next.js + React |
-| **LLM** | Ollama local | vLLM cluster, multi-GPU |
-| **Vector DB** | ChromaDB | PostgreSQL + pgvector |
-| **Storage** | Filesystem | S3/MinIO |
-| **Auth** | API key simple | Keycloak SSO, RBAC |
-| **Integrations** | — | Jira, SIEM/SOAR, CI/CD |
-| **Multi-tenant** | No | Sí (org → project → analysis) |
-| **Compliance** | — | SOC2, ISO 27001 artifact gen |
+- Fase 5 (enterprise): pendiente de planificación
 
 ---
 
@@ -182,7 +137,7 @@ graph TB
 
 ### Sprint 1 — Estabilización
 
-1. **H1**: Diferenciar models (deep = qwen3:30b-a3b realmente diferente)
+1. **H1**: ~~Diferenciar models~~ ✅ Resuelto — 4 tiers con qwen3.5:4b / 9b / 27b
 2. **C3**: Upload hardening (MIME whitelist, tamaños)
 3. **H7**: Error handling robusto por nodo (parcialmente implementado con `_safe_node`)
 

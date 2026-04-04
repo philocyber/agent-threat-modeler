@@ -114,14 +114,13 @@ Los agentes MAESTRO y AI Threat solo se activan si el sistema analizado contiene
 
 ```bash
 # Modelos que necesitás descargar
-ollama pull qwen3:8b           # ~5 GB — Quick Thinker (analistas rápidos)
-ollama pull qwen3:30b-a3b      # ~18 GB — Deep Thinker (síntesis, MoE)
-ollama pull deepseek-r1:14b    # ~9 GB — STRIDE + Debate (Chain-of-Thought)
-ollama pull qwen3-vl:8b        # ~5 GB — Vision (diagramas/imágenes)
+ollama pull qwen3.5:4b         # ~3.4 GB — Quick Thinker (analistas rápidos)
+ollama pull qwen3.5:9b         # ~6.6 GB — STRIDE/Debate + VLM (multimodal nativo)
+ollama pull qwen3.5:27b        # ~17 GB — Deep Thinker (síntesis, análisis profundo)
 ollama pull nomic-embed-text   # ~274 MB — Embeddings para RAG
 ```
 
-> ⚠️ **Nota sobre VRAM**: Con `max_parallel_analysts: 2` (default), el sistema carga como máximo 2 modelos de análisis simultáneamente. En una GPU de 16 GB, esto funciona bien con `qwen3:8b` (~5 GB cada uno). El `qwen3:30b-a3b` usa MoE (Mixture of Experts) con solo 3.3B de parámetros activos, pero requiere ~18 GB de disco y ~8 GB de VRAM efectiva.
+> ⚠️ **Nota sobre VRAM**: Con `max_parallel_analysts: 2` (default), el sistema carga como máximo 2 modelos de análisis simultáneamente. En una GPU de 16 GB, esto funciona bien con `qwen3.5:4b` (~3.4 GB cada uno). Todos los modelos Qwen3.5 soportan **contexto de 256K** e **input multimodal nativo** (texto + imágenes), por lo que no se necesita un modelo de visión separado.
 
 ---
 
@@ -212,21 +211,6 @@ Los frameworks y fuentes académicas que alimentan a AgenticTM incluyen:
 | **CAPEC / CWE** | Patrones de ataque y weaknesses | Todos los analistas (via RAG) |
 
 > Para un análisis detallado de cada framework, ver [02 — Fundamentos Académicos](02_fundamentos_academicos.md).
-
----
-
-## Relación con proyecto enterprise
-
-**proyecto enterprise** es la visión empresarial a largo plazo — una plataforma web completa con:
-- Frontend Next.js para carga y revisión de TMs
-- Backend con cola de procesamiento (Redis/SQS)
-- Almacenamiento efímero en S3 (datos purgados al completar)
-- Integración con Jira para tracking de remediaciones
-- vLLM interno (sin llamadas a APIs externas)
-- RBAC con Google Auth (JWT)
-- Base de datos PostgreSQL con `threat_justifications` audit trail
-
-AgenticTM es el **motor de análisis** que viviría dentro del Processing Worker de proyecto enterprise. Todo el pipeline multi-agente, RAG y generación de reportes se reutilizaría intacto.
 
 ---
 

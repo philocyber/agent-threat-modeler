@@ -19,7 +19,7 @@
 | 08 | [Configuración Completa](08_configuracion.md) | Referencia de config.json, variables de entorno, Pydantic models, seguridad |
 | 09 | [Guía de Uso](09_guia_de_uso.md) | Instalación paso a paso, CLI, interfaz web, carga de archivos, selección de categorías |
 | 10 | [Flujo de Datos](10_flujo_de_datos.md) | Diagramas de flujo de datos, transiciones de estado, qué lee y escribe cada agente |
-| 11 | [Mejoras y Roadmap](11_mejoras_roadmap.md) | Estado actual MVP/POC, mejoras implementadas, backlog priorizado, visión proyecto enterprise |
+| 11 | [Mejoras y Roadmap](11_mejoras_roadmap.md) | Estado actual MVP/POC, mejoras implementadas, backlog priorizado |
 | 12 | [Troubleshooting](12_troubleshooting.md) | Errores comunes, FAQ, glosario, tips de rendimiento |
 
 ---
