@@ -65,17 +65,16 @@ pip install -r requirements.txt
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Descargar modelos (puede tardar según la conexión)
-ollama pull qwen3:8b           # Quick Thinker — ~4.9 GB
-ollama pull qwen3:30b-a3b      # Deep Thinker — ~17.7 GB
-ollama pull deepseek-r1:14b    # STRIDE/Debate — ~9.0 GB (opcional)
-ollama pull qwen3-vl:8b        # Vision LLM — ~5.2 GB
-ollama pull nomic-embed-text   # Embeddings — ~274 MB
+ollama pull qwen3.5:4b          # Quick Thinker — ~2.7 GB
+ollama pull qwen3.5:27b         # Deep Thinker — ~17 GB
+ollama pull qwen3.5:9b          # STRIDE/Debate/VLM — ~6 GB
+ollama pull nomic-embed-text    # Embeddings — ~274 MB
 
 # Verificar
 ollama list
 ```
 
-> **Nota**: Si tenés menos de 16 GB de VRAM, podés usar `qwen3:8b` para todos los tiers. Ver [08 — Configuración](08_configuracion.md) para ajustes por hardware.
+> **Nota**: Si tenés menos de 16 GB de RAM, podés usar `qwen3.5:4b` para todos los tiers. Ver [08 — Configuración](08_configuracion.md) para ajustes por hardware.
 
 ### 5. Inicializar Estructura
 
@@ -152,12 +151,12 @@ Si no se provee `--input` ni `--file`, el CLI espera input por stdin (terminá c
 
 ```
 ╭─────────── AgenticTM -- Threat Modeling ───────────╮
-│ Sistema: Mi Sistema                                   │
+│ Sistema: Mi Sistema                                  │
 │ Input: 2847 caracteres                               │
 │ Categorías: auto                                     │
 ╰──────────────────────────────────────────────────────╯
 
-┌──────────── Threat Model — Mi Sistema ────────────┐
+┌──────────── Threat Model — Mi Sistema ───────────┐
 │ ID     │ Component   │ Threat         │ DREAD │ P │
 ├────────┼─────────────┼────────────────┼───────┼───┤
 │ WEB-01 │ API Gateway │ SQL Injection  │  38   │ C │
@@ -224,7 +223,7 @@ La pantalla principal muestra:
 - **Textarea** para describir el sistema
 - **Drag & drop** o botón para subir archivos (diagramas, PDFs, specs)
 - **Selector de categorías** de amenazas
-- **Debate rounds** control (1-9 rounds, default 2) via botones − y +
+- **Debate rounds** control (1-9 rounds, default 4) via botones − y +
 - **Botón Run** para iniciar el análisis
 
 ### 4. Usar Cloud Providers (Gemini, Claude, OpenAI)
@@ -430,9 +429,9 @@ services:
 docker exec -it agentictm-ollama-1 bash
 
 # Dentro del contenedor:
-ollama pull qwen3:8b
-ollama pull qwen3:30b-a3b
-ollama pull qwen3-vl:8b
+ollama pull qwen3.5:4b
+ollama pull qwen3.5:27b
+ollama pull qwen3.5:9b
 ollama pull nomic-embed-text
 ```
 
@@ -479,11 +478,11 @@ python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 2. Modelos (la primera vez)
-ollama pull qwen3:8b
+ollama pull qwen3.5:4b
 ollama pull nomic-embed-text
 
 # 3. Config mínima (un solo modelo para todo)
-echo '{"quick_thinker":{"model":"qwen3:8b"},"deep_thinker":{"model":"qwen3:8b"},"stride_thinker":{"model":"qwen3:8b"},"vlm":{"model":"qwen3:8b"},"pipeline":{"max_debate_rounds":2,"analyst_execution_mode":"cascade","max_parallel_analysts":1}}' > config.json
+echo '{"quick_thinker":{"model":"qwen3.5:4b"},"deep_thinker":{"model":"qwen3.5:4b"},"stride_thinker":{"model":"qwen3.5:4b"},"vlm":{"model":"qwen3.5:4b"},"pipeline":{"max_debate_rounds":2,"analyst_execution_mode":"cascade","max_parallel_analysts":1}}' > config.json
 
 # 4. Iniciar
 python run.py
@@ -509,7 +508,7 @@ python run.py
 
 ### Configuración
 
-- **`max_debate_rounds: 2-4`** para análisis rápidos, **`6-8`** para análisis profundos. El default es **2**.
+- **`max_debate_rounds: 2-4`** para análisis rápidos, **`6-8`** para análisis profundos. El default es **4**.
 - **`analyst_execution_mode: "hybrid"`** es la mejor relación calidad/VRAM.
 - **`target_threats: 20-30`** para sistemas medianos, **`30-40`** para complejos.
 

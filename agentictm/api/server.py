@@ -166,7 +166,7 @@ app = FastAPI(
     description=(
         "Multi-agent Threat Modeling System powered by LangChain/LangGraph + Ollama.\n\n"
         "## Features\n"
-        "- **13-node LangGraph pipeline** with 5 parallel methodology analysts\n"
+        "- **14-node LangGraph pipeline** with 5 parallel methodology analysts\n"
         "- **Hybrid RAG** (ChromaDB vectors + PageIndex trees)\n"
         "- **STRIDE + DREAD** scoring with Red/Blue Team debate\n"
         "- **SSE streaming** for real-time analysis progress\n"
@@ -1809,7 +1809,9 @@ async def get_result(analysis_id: str, _auth=Depends(verify_api_key)):
         "report_output": result.get("report_output", ""),
         "mermaid_dfd": result.get("mermaid_dfd", ""),
         "methodology_reports": result.get("methodology_reports", []),
-        "debate_history": _sanitize_debate_history(result.get("debate_history", [])),
+        "debate_history": _sanitize_debate_history(
+            result.get("debate_history_localized") or result.get("debate_history", [])
+        ),
         "live_execution": result.get("live_execution", []),
         "raw_input": raw_input,
         "uploaded_files": uploaded_files,
@@ -2294,10 +2296,16 @@ async def root():
 @app.get("/logo-philocyber.png")
 async def root_logo():
     """Serve PhiloCyber logo from project root for desktop/web branding."""
-    logo_path = Path("logo-philocyber.png")
-    if not logo_path.exists():
-        raise HTTPException(status_code=404, detail="Logo not found")
-    return FileResponse(logo_path, headers={"Cache-Control": "no-store"})
+    # Try multiple locations: static dir (always works), project root, CWD
+    candidates = [
+        _STATIC_DIR / "logo-philocyber.png",
+        Path(__file__).resolve().parent / "static" / "logo-philocyber.png",
+        Path("logo-philocyber.png").resolve(),
+    ]
+    for p in candidates:
+        if p.exists():
+            return FileResponse(p, headers={"Cache-Control": "no-store"})
+    raise HTTPException(status_code=404, detail="Logo not found")
 
 
 for _route in _SPA_ROUTES:
