@@ -273,7 +273,7 @@ def _parse_llm_selection(text: str) -> list[dict]:
                 if isinstance(item, dict) and "node_id" in item
             ]
     except json.JSONDecodeError as exc:
-        logger.debug("JSON parse error: %s — text: %s", exc, text[:200])
+        logger.debug("JSON parse error: %s -- text: %s", exc, text[:200])
 
     return []
 

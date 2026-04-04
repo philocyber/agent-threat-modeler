@@ -11,7 +11,7 @@
 | Error | Causa | Solución |
 |-------|-------|----------|
 | `Cannot connect to Ollama at http://localhost:11434` | Ollama no está corriendo | Iniciar Ollama: `ollama serve` o abrir la app |
-| `Model 'qwen3:8b' not found` | Modelo no descargado | `ollama pull qwen3:8b` |
+| `Model 'qwen3:4b' not found` | Modelo no descargado | `ollama pull qwen3:4b` |
 | `CUDA out of memory` / OOM kill | VRAM insuficiente para el modelo | Reducir `num_gpu`, usar modelos más chicos, o cambiar a `cascade` mode |
 | `Connection reset by peer` | Ollama crasheó durante inferencia | Revisar logs de Ollama (`ollama logs`), reiniciar Ollama |
 | `Request timeout after 300s` | Modelo muy lento (CPU-only, modelo grande) | Aumentar `timeout` en config.json, usar modelos más chicos |
@@ -27,7 +27,7 @@ curl http://localhost:11434/api/tags
 ollama list
 
 # ¿Funciona un modelo?
-ollama run qwen3:8b "test"
+ollama run qwen3:4b "test"
 ```
 
 ### Pipeline
@@ -58,7 +58,7 @@ ollama run qwen3:8b "test"
 |-------|-------|----------|
 | `No vector stores found` | Knowledge base no indexada | Ejecutar: `python cli.py index` |
 | Indexación muy lenta | PDFs grandes, tree summaries habilitados | Desactivar `tree_summaries: false` para acelerar. Reducir `max_summary_nodes` |
-| `nomic-embed-text not found` | Modelo de embeddings no descargado | `ollama pull nomic-embed-text` |
+| `nomic-embed-text-v2-moe not found` | Modelo de embeddings no descargado | `ollama pull nomic-embed-text-v2-moe` |
 | RAG retorna resultados irrelevantes | Chunks muy grandes, top_k muy bajo | Reducir `chunk_size` a 500, aumentar `retrieval_top_k` a 10 |
 
 ---
@@ -88,10 +88,10 @@ ollama run qwen3:8b "test"
 > Sí. Poné el mismo modelo en los 4 tiers. Funciona, pero pierde las ventajas de especialización.
 
 **¿Qué modelo es el mínimo viable?**
-> `qwen3:8b` o incluso `qwen3:4b` para todo. La calidad baja pero el pipeline funciona end-to-end.
+> `qwen3:4b` para todo. La calidad baja pero el pipeline funciona end-to-end.
 
-**¿Por qué DeepSeek-R1 para STRIDE/debate?**
-> Su Chain-of-Thought siempre visible genera un audit trail — se puede ver exactamente cómo razonó cada categoría STRIDE.
+**¿Por qué esta combinación de modelos?**
+> Qwen3:4b es rápido y ligero para triage. Qwen3.5:9b es nativamente multimodal (texto + imágenes) para STRIDE/debate/VLM. Gemma4:26b es un modelo MoE con solo 3.8B params activos, 2.5x más rápido que modelos densos equivalentes, ideal para síntesis profunda.
 
 **¿Puedo usar Llama, Mistral u otros modelos?**
 > Sí, cualquier modelo disponible en Ollama funciona. Los prompts están diseñados para modelos instruction-following genéricos.
@@ -105,7 +105,7 @@ ollama run qwen3:8b "test"
 > No. Solo si el input contiene keywords de AI/ML (~30 términos como "LLM", "model", "agent", "prompt", "neural", etc.).
 
 **¿Puedo desactivar agentes?**
-> MAESTRO y AI Threat se activan condicionalmente basados en el input. Los otros 3 (STRIDE, PASTA, Attack Tree) siempre corren.
+> Sí. Configurá `pipeline.enabled_analysts` con la lista de analistas deseados. MAESTRO y AI Threat también se activan condicionalmente basados en el input. Podés desactivar debate (`skip_debate`), DREAD validation (`skip_dread_validator`), Attack Tree enrichment (`skip_enriched_attack_tree`), y Output Localizer (`skip_output_localizer`) con flags en la configuración del pipeline.
 
 ---
 
@@ -144,7 +144,7 @@ ollama run qwen3:8b "test"
 2. **Reducir `max_debate_rounds`** a 2-3 para análisis rápidos
 3. **Desactivar self-reflection** (`self_reflection_enabled: false`)
 4. **Usar modelos más chicos** si la calidad es suficiente (qwen3:4b)
-5. **Pre-cargar modelos**: `ollama run qwen3:8b ""` antes del análisis carga el modelo en VRAM
+5. **Pre-cargar modelos**: `ollama run qwen3:4b ""` antes del análisis carga el modelo en VRAM
 
 ### Mejorar Calidad
 
@@ -153,7 +153,7 @@ ollama run qwen3:8b "test"
 3. **Indexar knowledge base** — mejora mitigaciones con contexto real
 4. **Usar categorías específicas** — `aws,ai,web` es mejor que `auto` si conocés tu stack
 5. **Aumentar debate rounds** a 6-8 para análisis profundos
-6. **Usar deep_thinker diferenciado** — qwen3:30b-a3b o un modelo cloud para el Synthesizer
+6. **Usar deep_thinker diferenciado** — gemma4:26b o un modelo cloud para el Synthesizer
 
 ### Monitorear Recursos
 

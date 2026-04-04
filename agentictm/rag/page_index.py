@@ -80,9 +80,9 @@ class TreeNode:
     def outline_str(self, indent: int = 0) -> str:
         """Human-readable tree outline."""
         prefix = "  " * indent
-        line = f"{prefix}[{self.node_id}] {self.title} (pp. {self.start_page + 1}–{self.end_page + 1})"
+        line = f"{prefix}[{self.node_id}] {self.title} (pp. {self.start_page + 1}-{self.end_page + 1})"
         if self.summary:
-            line += f" — {self.summary[:80]}..."
+            line += f" -- {self.summary[:80]}..."
         lines = [line]
         for child in self.children:
             lines.append(child.outline_str(indent + 1))
@@ -127,7 +127,7 @@ class DocumentTree:
 
     def outline(self) -> str:
         """Full tree outline for debugging/display."""
-        lines = [f"📚 {self.doc_name} ({self.total_pages} pages)"]
+        lines = [f"[Doc] {self.doc_name} ({self.total_pages} pages)"]
         for node in self.tree:
             lines.append(node.outline_str(indent=1))
         return "\n".join(lines)

@@ -57,11 +57,11 @@ def _query_ollama(base_url: str, path: str, timeout: float = 10) -> dict | None:
         return None
 
 
-# Model sizes (approximate VRAM in bytes) for common Qwen3.5 models
+# Model sizes (approximate VRAM in bytes) for default model stack
 _MODEL_SIZES: dict[str, int] = {
-    "qwen3.5:4b": int(3.4 * 1024**3),
+    "qwen3:4b": int(2.7 * 1024**3),
     "qwen3.5:9b": int(6.6 * 1024**3),
-    "qwen3.5:27b": int(17.4 * 1024**3),
+    "gemma4:26b": int(10.0 * 1024**3),
 }
 
 
@@ -191,7 +191,7 @@ def check_memory(config: Any) -> dict[str, Any]:
 
     return {
         "status": "WARN" if warnings else "OK",
-        "message": f"System RAM: {mem_gb:.1f} GB" + (f" — {len(warnings)} warning(s)" if warnings else ""),
+        "message": f"System RAM: {mem_gb:.1f} GB" + (f" -- {len(warnings)} warning(s)" if warnings else ""),
         "ram_gb": round(mem_gb, 1),
         "warnings": warnings,
     }

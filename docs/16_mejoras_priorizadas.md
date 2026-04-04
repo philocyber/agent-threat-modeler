@@ -43,11 +43,11 @@
 
 ## Altos (H) — Mejoran calidad significativamente
 
-### ⬜ H1: Diferenciación Real quick_thinker vs deep_thinker
-- **Estado:** PENDIENTE
-- **Descripción:** Actualmente ambos usan `qwen3:8b`. El deep_thinker debería usar un modelo más capaz (qwen3:14b, qwen3:32b, o un modelo cloud) para el sintetizador y validador DREAD
+### ✅ H1: Diferenciación Real quick_thinker vs deep_thinker
+- **Estado:** ✅ RESUELTO (v0.3.2)
+- **Descripción:** ~~Actualmente ambos usan `qwen3:8b`.~~ Resuelto: 4 tiers diferenciados — quick=`qwen3:4b`, stride=`qwen3.5:9b`, deep=`gemma4:26b`, vlm=`qwen3.5:9b`. Además `cli.py init` auto-configura según RAM disponible.
 - **Impacto:** Mejora drástica en calidad de síntesis y puntuación DREAD
-- **Esfuerzo:** Bajo (cambio de config)
+- **Esfuerzo:** ~~Bajo (cambio de config)~~ Completado
 
 ### ⬜ H2: Unificación de Idioma en Prompts
 - **Estado:** PARCIAL

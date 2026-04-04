@@ -157,7 +157,7 @@ def _build_human_prompt(state: ThreatModelState) -> str:
             dst = f.get("destination", "?")
             protocol = f.get("protocol", "")
             data = f.get("data", "")
-            line = f"  - {src} → {dst}"
+            line = f"  - {src} -> {dst}"
             if protocol:
                 line += f" [{protocol}]"
             if data:
@@ -357,6 +357,22 @@ def run_dread_validator(
 
     human_prompt = _build_human_prompt(state)
 
+    # Language-aware system prompt
+    _output_lang = "en"
+    if config:
+        _output_lang = config.pipeline.output_language
+    effective_system_prompt = SYSTEM_PROMPT
+    if _output_lang == "es":
+        effective_system_prompt += """
+
+LANGUAGE RULE:
+The threat descriptions and mitigations you receive may be in Spanish.
+You MUST preserve the original language of all text fields (description, mitigation, attack_path).
+Write your "observations" field in Spanish when the threat text is in Spanish.
+Write your "validation_notes" in Spanish.
+Do NOT translate or rewrite text fields — only adjust DREAD numeric scores.
+"""
+
     prompt_kb = len(human_prompt) / 1024
     logger.info("[DREAD Validator] Prompt size: %.1f KB (%d threats)", prompt_kb, len(threats_final))
 
@@ -366,7 +382,7 @@ def run_dread_validator(
 
     def _run_llm():
         return invoke_agent(
-            llm, SYSTEM_PROMPT, human_prompt,
+            llm, effective_system_prompt, human_prompt,
             tools=VALIDATOR_TOOLS,
             agent_name="DREAD Validator",
             enable_self_reflection=_self_reflect,
@@ -377,7 +393,7 @@ def run_dread_validator(
             future = executor.submit(_run_llm)
             response = future.result(timeout=DREAD_TIMEOUT)
     except concurrent.futures.TimeoutError:
-        logger.error("[DREAD Validator] TIMEOUT after %ds — keeping original threats", DREAD_TIMEOUT)
+        logger.error("[DREAD Validator] TIMEOUT after %ds -- keeping original threats", DREAD_TIMEOUT)
         return {}
 
     elapsed = time.perf_counter() - t0
@@ -448,6 +464,12 @@ def run_dread_validator(
             else:
                 priority = "Low"
 
+            orig_obs = orig.get("observations", "")
+            update_obs = update.get("observations", "")
+            # Prefer original observations if non-empty; only use validator's
+            # observations when the original was blank or the validator appended info.
+            merged_obs = orig_obs if orig_obs else update_obs
+
             validated = dict(orig)
             validated.update({
                 "damage": d,
@@ -457,7 +479,7 @@ def run_dread_validator(
                 "discoverability": disc,
                 "dread_total": final_total,
                 "priority": priority,
-                "observations": update.get("observations", orig.get("observations", "")),
+                "observations": merged_obs,
             })
             validated_threats.append(validated)
         else:
@@ -483,7 +505,7 @@ def run_dread_validator(
 
     total_elapsed = time.perf_counter() - t0
     logger.info(
-        "[DREAD Validator] COMPLETED in %.1fs | threats: %d→%d | score changes: %d",
+        "[DREAD Validator] COMPLETED in %.1fs | threats: %d->%d | score changes: %d",
         total_elapsed, original_count, new_count, changes,
     )
 

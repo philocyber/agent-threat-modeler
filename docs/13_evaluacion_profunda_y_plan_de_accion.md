@@ -49,8 +49,8 @@ El sistema es **muy bueno como prototipo avanzado** de threat modeling multi-age
    - `max_validation_iterations` está configurado pero no orquesta iteraciones reales.
    - Impacto: sensación de robustez mayor a la real.
 
-4. **Modelo quick/deep idéntico (`qwen3:8b`)**
-   - Problema: no hay verdadera diferenciación cognitiva por fase.
+4. **Modelo quick/deep idéntico (`qwen3:8b`)** — ✅ **Resuelto en v0.3.2**: ahora 4 tiers diferenciados (qwen3:4b / qwen3.5:9b / gemma4:26b)
+   - Problema: no había verdadera diferenciación cognitiva por fase.
    - Impacto: costo/latencia sin ganancia clara de calidad entre etapas.
 
 ### P1 (alto valor en 2-4 semanas)

@@ -25,6 +25,11 @@ import sys
 import time
 
 
+# Ensure Unicode characters in log messages don't crash on Windows consoles
+# (cp1252 / cp437).  Setting this early covers all print() / logging output.
+if not os.environ.get("PYTHONIOENCODING"):
+    os.environ["PYTHONIOENCODING"] = "utf-8:replace"
+
 HOST = os.environ.get("AGENTICTM_HOST", "127.0.0.1")
 DEFAULT_PORT = 8000
 
@@ -41,7 +46,7 @@ def _install_crash_guards() -> None:
         crash_file = open(crash_path, "w")
         faulthandler.enable(file=crash_file, all_threads=True)
         faulthandler.enable(file=sys.stderr, all_threads=True)
-        print(f"[AgenticTM] Crash guard enabled — native tracebacks → {crash_path}")
+        print(f"[AgenticTM] Crash guard enabled -- native tracebacks -> {crash_path}")
     except Exception as exc:
         faulthandler.enable(file=sys.stderr, all_threads=True)
         print(f"[AgenticTM] Crash guard (stderr only): {exc}", file=sys.stderr)

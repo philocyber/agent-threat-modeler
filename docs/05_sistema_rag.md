@@ -103,7 +103,7 @@ Cada subdirectorio se indexa en una **colección ChromaDB** independiente:
 
 ### Embeddings
 
-- **Modelo**: `nomic-embed-text` (via Ollama)
+- **Modelo**: `nomic-embed-text-v2-moe` (via Ollama)
 - **Chunk size**: 1000 caracteres
 - **Chunk overlap**: 200 caracteres
 - **Splitter**: `RecursiveCharacterTextSplitter` (de LangChain)
@@ -389,7 +389,7 @@ class RAGStoreManager:
     def __init__(self, persist_dir, embedding_model, embedding_provider, 
                  base_url, tree_index_dir):
         self._embeddings = OllamaEmbeddings(
-            model=embedding_model,  # "nomic-embed-text"
+            model=embedding_model,  # "nomic-embed-text-v2-moe"
             base_url=base_url,      # "http://localhost:11434"
         )
         self._stores = {}  # Lazy-loaded ChromaDB stores
@@ -462,7 +462,7 @@ sequenceDiagram
         end
         
         Indexer->>Indexer: RecursiveCharacterTextSplitter
-        Indexer->>Ollama: nomic-embed-text (embeddings)
+        Indexer->>Ollama: nomic-embed-text-v2-moe (embeddings)
         Indexer->>Chroma: Upsert chunks con metadata
     end
     

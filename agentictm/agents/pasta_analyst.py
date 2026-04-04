@@ -1,8 +1,8 @@
-"""Agente: PASTA Analyst — Fase II: Análisis por Metodología.
+"""Agente: PASTA Analyst -- Fase II: Analisis por Metodologia.
 
 Aplica PASTA (Process for Attack Simulation and Threat Analysis):
 enfoque risk-centric y business-oriented de 7 etapas que complementa STRIDE
-con análisis de objetivos de negocio y simulación de ataques.
+con analisis de objetivos de negocio y simulacion de ataques.
 """
 
 from __future__ import annotations
@@ -22,61 +22,42 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a threat analyst specialized in PASTA
-(Process for Attack Simulation and Threat Analysis).
+!!! OUTPUT FORMAT: You MUST respond with a SINGLE JSON object. NO markdown, NO headers, NO stage narratives. !!!
 
-PASTA is a 7-stage risk-centric approach. Cover:
-1) Business objectives and impact
-2) Technical scope and dependencies
-3) Application decomposition (boundaries, entry points, critical assets)
-4) Threat analysis
-5) Vulnerability analysis (CWE/CVE)
-6) Attack simulation (realistic multi-step paths)
-7) Risk and business impact assessment
+You are a PASTA (Process for Attack Simulation and Threat Analysis) expert.
+Use PASTA's attacker-centric 7-stage methodology internally to identify threats:
+1) Business objectives  2) Technical scope  3) App decomposition
+4) Threat analysis  5) Vulnerability analysis  6) Attack simulation  7) Risk assessment
 
-Unlike STRIDE (component-centric), PASTA is attack-centric.
-Reason from the attacker perspective and objectives.
+But OUTPUT ONLY the JSON below -- do NOT write stage-by-stage narrative.
 
-CRITICAL — AUDIENCE: Your descriptions will be read by developers with NO formal
-security training. Explain every attack as a story: who the attacker is, what they
-want, and the exact sequence of actions they take against this specific system.
+AUDIENCE: Developers with NO security training. Write attack_scenario as a story.
 
-For EVERY threat:
-- "attack_scenario": 3–5 sentences narrating the FULL attack story against THIS system.
-  Describe the attacker's goal, their entry point, the specific steps they take, and
-  the final impact. Name the exact components they interact with.
-- "attack_path": A numbered step-by-step sequence (e.g. '1. Attacker registers a free
-  account -> 2. Uses API endpoint /export to request another user’s data by changing
-  the user_id parameter -> 3. Receives full PII export without authorization check').
-- "reasoning": 2–3 sentences explaining what specific design or implementation choice
-  makes this attack possible (e.g., 'The /export endpoint trusts the user_id parameter
-  from the request body without verifying it matches the authenticated session user').
+Your response must be EXACTLY this JSON structure:
+{"methodology":"PASTA","threats":[<6-12 threat objects>],"summary":"<1 paragraph>"}
 
-Respond with JSON only:
+Each threat object:
 {
-  "methodology": "PASTA",
-  "business_context": "business risk analysis including financial, reputational, compliance impact",
-  "threats": [
-     {
-        "attack_scenario": "3-5 sentence narrative of the full attack story against this specific system",
-        "target_asset": "specific asset being attacked (e.g. 'user credential database', 'payment records')",
-        "attack_path": "1. step -> 2. step -> 3. step (numbered, specific to this system)",
-        "likelihood": "High|Medium|Low",
-        "business_impact": "High|Medium|Low",
-        "risk_level": "Critical|High|Medium|Low",
-        "vulnerabilities_exploited": "CWE-XX, CVE-XXXX-XXXXX",
-        "reasoning": "2-3 sentences on the specific design flaw or missing control that makes this attack possible",
-        "countermeasures": "2-3 sentence specific mitigation: what code/config/infrastructure change prevents this attack. Reference the target_asset by name.",
-        "control_reference": "NIST 800-53 control ID, OWASP ASVS section, or CIS control (e.g. 'NIST SI-10, CWE-639')",
-        "evidence_sources": [{"source_type": "rag|llm_knowledge|contextual|architecture", "source_name": "e.g. CWE-639", "excerpt": "supporting reference"}],
-        "confidence_score": 0.85
-     }
-  ],
-  "summary": "executive summary of PASTA analysis"
+  "attack_scenario": "3-5 sentences: who attacks, how they enter, what steps they take, what damage results. Name specific components.",
+  "target_asset": "the specific component or data store under attack",
+  "attack_path": "1. step -> 2. step -> 3. step",
+  "likelihood": "High|Medium|Low",
+  "business_impact": "High|Medium|Low",
+  "risk_level": "Critical|High|Medium|Low",
+  "vulnerabilities_exploited": "CWE-XX or CVE-XXXX-XXXXX",
+  "reasoning": "2-3 sentences: what design flaw makes this possible",
+  "countermeasures": "specific code/config/infra change to prevent this",
+  "control_reference": "NIST 800-53, OWASP ASVS, or CIS control ID",
+  "evidence_sources": [{"source_type": "rag", "source_name": "source", "excerpt": "quote"}],
+  "confidence_score": 0.85
 }
 
-EVIDENCE: Each threat MUST include at least 1 evidence_source citing where the finding comes from.
-CONFIDENCE: Rate 0.0-1.0 how certain you are this attack scenario applies to THIS specific system.
+RULES:
+- Think through all 7 PASTA stages INTERNALLY to find threats
+- Output ONLY the JSON object -- no markdown, no stage headers, no explanations outside JSON
+- 6-12 threats covering multi-step attacks, lateral movement, and business impact
+- Each threat must reference SPECIFIC components from the architecture
+- Each evidence_source must cite where the finding comes from
 """
 
 
@@ -89,6 +70,8 @@ def _build_human_prompt(state: ThreatModelState) -> str:
     return f"""\
 Analyze the following system using PASTA (7 stages).
 Think like an ATTACKER: what are the most realistic attack paths?
+
+IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or stage descriptions.
 
 ## System Description
 {state.get("system_description", "Not available")}
@@ -113,6 +96,8 @@ Focus on:
 - Business impact (not only technical impact)
 - Realistic attack paths, not purely theoretical ones
 - Use your attacker expertise first, then enrich with RAG tools to validate scenarios against known vulnerability databases (CWE/CVE)
+
+REMINDER: Output a single JSON object with "methodology", "threats" array, and "summary". No markdown.
 """
 
 
@@ -132,7 +117,6 @@ def run_pasta_analyst(
     parsed = extract_json_from_response(response)
     threats_raw = parsed.get("threats", []) if isinstance(parsed, dict) else []
 
-    # FALLBACK: If JSON parsing failed, try markdown extraction
     if not threats_raw:
         logger.warning(
             "[PASTA] JSON extraction produced 0 threats. "

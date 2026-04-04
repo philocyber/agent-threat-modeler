@@ -130,7 +130,7 @@ def analyze(
     # ── Apply scan mode overrides ──────────────────────────────────
     if mode == "fast":
         fast_llm = LLMConfig(
-            model="qwen3.5:4b",
+            model="qwen3:4b",
             temperature=0.3,
             timeout=120,
             think=False,
@@ -147,7 +147,7 @@ def analyze(
         config.pipeline.skip_output_localizer = True
         config.pipeline.target_threats = 10
         config.pipeline.max_debate_rounds = 0
-        console.print("[yellow]⚡ Fast mode (~2 min): qwen3.5:4b, STRIDE+AttackTree, sin debate, VLM 60s[/yellow]")
+        console.print("[yellow]Fast mode (~2 min): qwen3:4b, STRIDE+AttackTree, sin debate, VLM 60s[/yellow]")
     elif mode == "custom" and model_size is not None:
         # Resolve closest Ollama model
         from agentictm.api.server import _resolve_ollama_model

@@ -621,7 +621,7 @@ def _build_human_prompt(state: ThreatModelState) -> str:
                     control = ta.get("control_reference", "")
                     debate_verdicts_text += f"  BLUE {verdict}: {threat_id}"
                     if mitigation:
-                        debate_verdicts_text += f" → Mitigation: {mitigation[:400]}"
+                        debate_verdicts_text += f" -> Mitigation: {mitigation[:400]}"
                     if control:
                         debate_verdicts_text += f" [{control}]"
                     debate_verdicts_text += "\n"
@@ -832,7 +832,7 @@ def _deduplicate_threats(threats: list[dict]) -> list[dict]:
 
     if merged_indices_p1:
         logger.info(
-            "[Dedup P1] Intra-component: %d → %d (merged %d across %d groups)",
+            "[Dedup P1] Intra-component: %d -> %d (merged %d across %d groups)",
             len(threats), len(pass1_winners), len(merged_indices_p1), len(comp_groups),
         )
 
@@ -869,7 +869,7 @@ def _deduplicate_threats(threats: list[dict]) -> list[dict]:
 
     if absorbed:
         logger.info(
-            "[Dedup P2] Cross-component: %d → %d (merged %d with same STRIDE + similar desc)",
+            "[Dedup P2] Cross-component: %d -> %d (merged %d with same STRIDE + similar desc)",
             len(pass1_winners), len(pass2_winners), len(absorbed),
         )
 
@@ -1131,7 +1131,7 @@ def _apply_quality_gates(
             ctrl_filled += 1
 
     if stride_fixed:
-        logger.info("[QualityGate] Fixed %d invalid STRIDE categories (e.g. LLM02|ASI03 → inferred)", stride_fixed)
+        logger.info("[QualityGate] Fixed %d invalid STRIDE categories (e.g. LLM02|ASI03 -> inferred)", stride_fixed)
 
     if mit_filled:
         logger.info("[QualityGate] Filled %d empty mitigations with STRIDE defaults", mit_filled)
@@ -1250,14 +1250,36 @@ def _threat_references_architecture(
     return overlap >= 2
 
 
+_VACUOUS_THREAT_MARKERS = [
+    "currently empty",
+    "are currently empty",
+    "no data stores or specific components defined",
+    "no data flows or data stores are defined",
+    "no defined entry point",
+    "no specific information currently at risk",
+    "there is no known mechanism",
+    "there is no current risk",
+    "no data stores or specific components",
+    "in a hypothetical scenario",
+    "in a typical scenario, if",
+    "no componentes definidos",
+    "no hay flujos de datos definidos",
+    "no hay componentes específicos",
+    "actualmente vacíos",
+    "actualmente vacío",
+    "no se han definido componentes",
+]
+
+
 def _filter_irrelevant_threats(
     threats: list[dict],
     state: dict,
 ) -> list[dict]:
     """Remove threats that don't apply to this system's architecture.
 
-    1. If the system has no AI/ML components, drop AI-specific threats.
-    2. Reduce confidence of threats with no connection to the architecture
+    1. Drop vacuous threats that explicitly state components/data are empty.
+    2. If the system has no AI/ML components, drop AI-specific threats.
+    3. Reduce confidence of threats with no connection to the architecture
        (but don't drop them outright — lower their DREAD scores instead).
     """
     has_ai = _system_has_ai_components(state)
@@ -1272,11 +1294,21 @@ def _filter_irrelevant_threats(
 
     filtered = []
     dropped_ai = 0
+    dropped_vacuous = 0
     demoted = 0
 
     for t in threats:
         desc_lower = (t.get("description") or "").lower()
         methodology = (t.get("methodology") or "").upper()
+
+        if any(marker in desc_lower for marker in _VACUOUS_THREAT_MARKERS):
+            dropped_vacuous += 1
+            continue
+
+        component = (t.get("component") or "").lower()
+        if "placeholder" in component:
+            dropped_vacuous += 1
+            continue
 
         if not has_ai and "AI_THREAT" in methodology:
             is_ai_specific = any(marker in desc_lower for marker in _AI_THREAT_MARKERS)
@@ -1302,6 +1334,11 @@ def _filter_irrelevant_threats(
 
         filtered.append(t)
 
+    if dropped_vacuous:
+        logger.info(
+            "[ArchFilter] Dropped %d vacuous/placeholder threats (empty architecture references)",
+            dropped_vacuous,
+        )
     if dropped_ai:
         logger.info(
             "[ArchFilter] Dropped %d AI/LLM-specific threats (system has no AI components)",
@@ -1311,6 +1348,137 @@ def _filter_irrelevant_threats(
         logger.info("[ArchFilter] Demoted %d threats with weak architectural grounding (DREAD -1/dim)", demoted)
 
     return filtered
+
+
+_TRANSLATE_SYSTEM_PROMPT = """\
+You are a professional security content translator.
+
+Task: translate threat model text fields from English to neutral professional Spanish.
+
+Rules:
+1. Keep technical terms, acronyms, and framework references in English:
+   STRIDE, DREAD, XSS, IDOR, SSRF, JWT, NIST, CIS, OWASP, CAPEC, CWE,
+   ATT&CK, CVE, API, SQL, IAM, S3, OAuth, MFA, TLS, RBAC, PII, DoS, etc.
+2. Return ONLY a JSON array with {"index": <int>, "description": "...", "mitigation": "...", "attack_path": "..."}.
+3. Match the "index" to the position in the input array (0-based).
+4. Keep the meaning, severity, and specificity identical — only change the language.
+5. If a field is already in Spanish, return it unchanged.
+"""
+
+_TRANSLATE_BATCH_SIZE = 12
+_TRANSLATE_TIMEOUT = 180
+
+
+def _detect_english(text: str) -> bool:
+    """Heuristic: return True if text looks predominantly English."""
+    if not text or len(text) < 20:
+        return False
+    english_markers = [
+        "the ", " is ", " are ", " was ", " with ", " this ", " that ",
+        " could ", " would ", " should ", " which ", " have ", " from ",
+        " into ", " without ", " their ", " there ", " however ",
+        " if an ", " an attacker", " allowing ", " ensure ",
+    ]
+    text_lower = text.lower()
+    hits = sum(1 for m in english_markers if m in text_lower)
+    return hits >= 3
+
+
+def _translate_baseline_threats(
+    threats: list[dict],
+    llm: "BaseChatModel",
+    output_language: str = "en",
+) -> list[dict]:
+    """Translate English baseline threats to the target language via batched LLM calls.
+
+    Only processes threats whose description looks English. On failure, returns
+    originals unchanged (never loses data).
+    """
+    if output_language != "es":
+        return threats
+
+    english_indices: list[int] = []
+    for i, t in enumerate(threats):
+        desc = t.get("description", "")
+        mit = t.get("mitigation", "")
+        if _detect_english(desc) or _detect_english(mit):
+            english_indices.append(i)
+
+    if not english_indices:
+        logger.info("[Translate] All %d baseline threats appear to be in Spanish -- skipping", len(threats))
+        return threats
+
+    logger.info(
+        "[Translate] %d/%d baseline threats detected as English — translating to Spanish",
+        len(english_indices), len(threats),
+    )
+
+    import concurrent.futures
+
+    for batch_start in range(0, len(english_indices), _TRANSLATE_BATCH_SIZE):
+        batch_idx = english_indices[batch_start:batch_start + _TRANSLATE_BATCH_SIZE]
+        batch_items = []
+        for pos, idx in enumerate(batch_idx):
+            t = threats[idx]
+            batch_items.append({
+                "index": pos,
+                "description": t.get("description", ""),
+                "mitigation": t.get("mitigation", ""),
+                "attack_path": t.get("attack_path", ""),
+            })
+
+        human_prompt = (
+            "Translate these threat fields to professional Spanish:\n\n"
+            f"```json\n{json.dumps(batch_items, indent=2, ensure_ascii=False)}\n```"
+        )
+
+        try:
+            def _invoke_translate():
+                return invoke_agent(
+                    llm, _TRANSLATE_SYSTEM_PROMPT, human_prompt,
+                    agent_name="BaselineTranslator",
+                )
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_invoke_translate)
+                response = future.result(timeout=_TRANSLATE_TIMEOUT)
+
+            parsed = extract_json_from_response(response)
+            translated_items: list[dict] = []
+            if isinstance(parsed, list):
+                translated_items = [e for e in parsed if isinstance(e, dict)]
+            elif isinstance(parsed, dict):
+                translated_items = _find_threats_array(parsed) or ([parsed] if "description" in parsed else [])
+
+            applied = 0
+            for item in translated_items:
+                try:
+                    pos = int(item.get("index", -1))
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= pos < len(batch_idx):
+                    real_idx = batch_idx[pos]
+                    new_desc = _to_str(item.get("description", ""))
+                    new_mit = _to_str(item.get("mitigation", ""))
+                    new_path = _to_str(item.get("attack_path", ""))
+                    if new_desc and len(new_desc) > 20:
+                        threats[real_idx]["description"] = new_desc
+                        applied += 1
+                    if new_mit and len(new_mit) > 10:
+                        threats[real_idx]["mitigation"] = new_mit
+                    if new_path and len(new_path) > 10:
+                        threats[real_idx]["attack_path"] = new_path
+
+            logger.info(
+                "[Translate] Batch %d-%d: translated %d/%d threats",
+                batch_start, batch_start + len(batch_idx), applied, len(batch_idx),
+            )
+        except concurrent.futures.TimeoutError:
+            logger.warning("[Translate] Batch %d timed out after %ds -- keeping originals", batch_start, _TRANSLATE_TIMEOUT)
+        except Exception as exc:
+            logger.warning("[Translate] Batch %d failed: %s -- keeping originals", batch_start, exc)
+
+    return threats
 
 
 _ENRICH_SYSTEM_PROMPT = """\
@@ -1362,7 +1530,7 @@ def _enrich_weak_threats(
             weak_indices.append(i)
 
     if not weak_indices:
-        logger.info("[Enrich] All %d threats meet quality threshold — skipping enrichment", len(threats))
+        logger.info("[Enrich] All %d threats meet quality threshold -- skipping enrichment", len(threats))
         return threats
 
     logger.info(
@@ -1431,9 +1599,9 @@ def _enrich_weak_threats(
                 batch_start, batch_start + len(batch_idx), applied, len(batch_idx),
             )
         except concurrent.futures.TimeoutError:
-            logger.warning("[Enrich] Batch %d timed out after %ds — keeping originals", batch_start, _ENRICH_TIMEOUT)
+            logger.warning("[Enrich] Batch %d timed out after %ds -- keeping originals", batch_start, _ENRICH_TIMEOUT)
         except Exception as exc:
-            logger.warning("[Enrich] Batch %d failed: %s — keeping originals", batch_start, exc)
+            logger.warning("[Enrich] Batch %d failed: %s -- keeping originals", batch_start, exc)
 
     return threats
 
@@ -1698,6 +1866,10 @@ Example description in Spanish:
             len(threats_final),
         )
 
+    # ── Step 4b: Translate baseline threats to Spanish if needed ──
+    if _used_baseline and _output_lang == "es":
+        threats_final = _translate_baseline_threats(threats_final, llm, output_language=_output_lang)
+
     # ── Step 5: Quality gates (filter, deduplicate, fill gaps, cap count) ──
     _max_t = config.pipeline.max_threats if config else 30
     _known_comps = [
@@ -1727,7 +1899,7 @@ Example description in Spanish:
     # Log final threat IDs for traceability
     for t in threats_final[:30]:
         logger.info(
-            "  → %s [%s] %s | DREAD=%s | %s",
+            "  -> %s [%s] %s | DREAD=%s | %s",
             t.get("id", "?"), t.get("stride_category", "?"),
             (t.get("component", "") or "?")[:40],
             t.get("dread_total", 0),
@@ -1736,6 +1908,10 @@ Example description in Spanish:
 
     return {
         "threats_final": threats_final,
-        "executive_summary": executive_summary or "Threat model synthesized from multiple methodology analyses.",
+        "executive_summary": executive_summary or (
+            "Modelo de amenazas sintetizado a partir de múltiples análisis metodológicos."
+            if _output_lang == "es"
+            else "Threat model synthesized from multiple methodology analyses."
+        ),
         "report_output": raw_response,  # Keep raw response for report
     }

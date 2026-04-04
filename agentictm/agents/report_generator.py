@@ -398,24 +398,23 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         report += "- Crítico: 40+, Alto: 30-39, Medio: 20-29, Bajo: <20\n\n"
 
     # ── Debate ──
-    debate = state.get("debate_history", [])
+    # Prefer localized debate if available (set by output_localizer for Spanish)
+    debate_localized = state.get("debate_history_localized", [])
+    debate = debate_localized if debate_localized else state.get("debate_history", [])
     if debate:
         report += "## Red Team vs Blue Team Debate\n\n"
         seen_rounds: set[str] = set()
         for entry in debate:
             side_raw = entry.get("side", "") if isinstance(entry, dict) else getattr(entry, "side", "")
             rnd = entry.get("round", "?") if isinstance(entry, dict) else getattr(entry, "round", "?")
-            # Skip malformed entries (missing side/round)
             if not side_raw or rnd == "?":
                 continue
-            # Deduplicate by (side, round) — output_localizer may have appended duplicates
             dedup_key = f"{side_raw}-{rnd}"
             if dedup_key in seen_rounds:
                 continue
             seen_rounds.add(dedup_key)
             side = "RED TEAM" if side_raw == "red" else "BLUE TEAM"
             arg = entry.get("argument", "") if isinstance(entry, dict) else getattr(entry, "argument", "")
-            # Strip orphaned </think> tags and reasoning remnants
             if arg:
                 import re as _re
                 arg = _re.sub(r"<think>.*?</think>", "", arg, flags=_re.DOTALL)

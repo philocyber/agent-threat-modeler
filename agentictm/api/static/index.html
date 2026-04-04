@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Threat Agent Modeler</title>
+  <link rel="icon" type="image/png" href="/logo-philocyber.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -2909,7 +2910,7 @@
             <div class="scan-mode-group">
               <button class="scan-mode-opt" data-mode="fast"
                 onclick="setScanMode('fast')" type="button"
-                title="Fast: qwen3.5:4b, solo STRIDE + Attack Tree, sin debate. Ideal para demos (~2 min).">
+                title="Fast: qwen3:4b, solo STRIDE + Attack Tree, sin debate. Ideal para demos (~2 min).">
                 &#9889; Fast
               </button>
               <button class="scan-mode-opt active" data-mode="deep"
@@ -4552,47 +4553,43 @@
     async function startAnalysis() {
       const systemInput = document.getElementById('systemInput').value.trim();
       const systemName = document.getElementById('systemName').value.trim() || 'System';
-      if (!systemInput) { showToast('Por favor, ingresa una descripción del sistema.', 'warning'); return; }
+      if (!systemInput) { showToast('Por favor, ingresa una descripcion del sistema.', 'warning'); return; }
 
-      // Run triage first (unless skipped)
+      // Switch to live view immediately so the user sees progress
+      _prepareAnalysisView(systemInput, systemName);
+
+      // Run triage in background (non-blocking for UI)
       if (!_skipTriage) {
         try {
-          document.getElementById('btnSend').disabled = true;
+          addThinkingEntry({ type: 'log', level: 'INFO', message: 'Evaluating input quality...', timestamp: new Date().toISOString(), agent: 'system' });
           const triageResp = await apiFetch('/api/triage', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ system_input: systemInput, system_name: systemName }),
           });
           const triageData = await triageResp.json();
-          document.getElementById('btnSend').disabled = false;
 
           if (triageData.verdict === 'needs_info' && triageData.questions && triageData.questions.length > 0) {
             _triageEnrichedInput = systemInput;
+            addThinkingEntry({ type: 'log', level: 'INFO', message: `Input quality: ${triageData.quality_score}/100 -- ${triageData.questions.length} questions for improvement`, timestamp: new Date().toISOString(), agent: 'system' });
             _showTriageOverlay(triageData);
-            return; // Wait for user to answer or skip
+            return;
           }
-          // verdict=ready — proceed directly
+          addThinkingEntry({ type: 'log', level: 'INFO', message: `Input quality: ${triageData.quality_score || '?'}/100 -- proceeding to analysis`, timestamp: new Date().toISOString(), agent: 'system' });
         } catch (err) {
-          document.getElementById('btnSend').disabled = false;
-          // Triage failed — proceed without it
           console.warn('Triage skipped due to error:', err);
+          addThinkingEntry({ type: 'log', level: 'WARNING', message: 'Triage skipped: ' + err.message, timestamp: new Date().toISOString(), agent: 'system' });
         }
       }
       _skipTriage = false;
       await _runFullAnalysis(systemInput);
     }
 
-    async function _runFullAnalysis(systemInput) {
-      const systemName = document.getElementById('systemName').value.trim() || 'System';
-      if (!systemInput) { showToast('Por favor, ingresa una descripción del sistema.', 'warning'); return; }
-
+    function _prepareAnalysisView(systemInput, systemName) {
       currentAnalysisInput = systemInput;
       currentAnalysisFiles = [...uploadedFiles];
-
-      // ── Reset all stale data from previous run before anything renders ──
       _clearResultPanels();
 
-      // ── Initialize in-progress tracking ──
       const tempId = '_pending_' + Date.now();
       _inProgressAnalysis = {
         id: tempId,
@@ -4610,8 +4607,7 @@
       savePastAnalyses();
       renderPastAnalyses();
 
-      const btn = document.getElementById('btnSend');
-      btn.disabled = true;
+      document.getElementById('btnSend').disabled = true;
       document.getElementById('topbarStatus').innerHTML = '<span class="status-dot" style="background:var(--accent);animation:pulse 1s infinite"></span> Analyzing...';
       document.getElementById('topbarTitle').textContent = systemName;
 
@@ -4623,6 +4619,17 @@
       renderPromptPanel(systemInput, currentAnalysisFiles, Array.from(selectedCats));
       initPipeline();
       _startElapsedTimer();
+    }
+
+    async function _runFullAnalysis(systemInput) {
+      const systemName = document.getElementById('systemName').value.trim() || 'System';
+      if (!systemInput) { showToast('Por favor, ingresa una descripcion del sistema.', 'warning'); return; }
+
+      // View setup already done by _prepareAnalysisView() if called from startAnalysis();
+      // but handle the case where _runFullAnalysis is called directly (e.g. after triage skip)
+      if (!_inProgressAnalysis) {
+        _prepareAnalysisView(systemInput, systemName);
+      }
 
       const body = {
         system_input: systemInput,
@@ -4647,6 +4654,25 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body),
         });
+
+        if (!response.ok) {
+          let errMsg = `Server error: ${response.status}`;
+          try {
+            const errBody = await response.json();
+            errMsg = errBody.detail || errMsg;
+          } catch { /* ignore JSON parse failure */ }
+          addThinkingEntry({ type: 'log', level: 'ERROR', message: errMsg, timestamp: new Date().toISOString() });
+          _finalizeAgentBlocks();
+          pastAnalyses = pastAnalyses.map(p => p.id === analysisId ? { ...p, status: 'failed' } : p);
+          savePastAnalyses();
+          renderPastAnalyses();
+          _inProgressAnalysis = null;
+          document.getElementById('topbarStatus').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> Error';
+          showToast(errMsg, 'error', 8000);
+          btn.disabled = false;
+          return;
+        }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -4663,6 +4689,13 @@
         }
       } catch (err) {
         addThinkingEntry({ type: 'log', level: 'ERROR', message: 'Connection error: ' + err.message, timestamp: new Date().toISOString() });
+        _finalizeAgentBlocks();
+        pastAnalyses = pastAnalyses.map(p => p.id === analysisId ? { ...p, status: 'failed' } : p);
+        savePastAnalyses();
+        renderPastAnalyses();
+        _inProgressAnalysis = null;
+        document.getElementById('topbarStatus').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> Error';
+        showToast('Connection error: ' + err.message, 'error', 8000);
       }
       btn.disabled = false;
     }
@@ -4819,12 +4852,15 @@
       renderPastAnalyses();
     }
 
-    // Merge server-side results with localStorage
+    // Merge server-side results with localStorage and remove stale entries
     async function syncPastAnalyses() {
       try {
         const resp = await apiFetch('/api/results');
         if (!resp.ok) return;
         const serverItems = await resp.json();
+        const serverIds = new Set(serverItems.map(s => s.analysis_id));
+
+        // Add server entries that aren't in localStorage yet
         const existingIds = new Set(pastAnalyses.map(p => p.id));
         for (const s of serverItems) {
           if (!existingIds.has(s.analysis_id)) {
@@ -4832,11 +4868,26 @@
               id: s.analysis_id,
               name: s.system_name || 'Unknown',
               threats: s.threats_count || 0,
-              date: s.analysis_date || '',
+              date: s.analysis_date || s.analysis_timestamp || '',
               slug: s.project_slug || s.analysis_id,
+              status: 'completed',
             });
           }
         }
+
+        // Remove localStorage entries the server no longer knows about
+        // (but keep entries that are currently running or have no ID yet)
+        const before = pastAnalyses.length;
+        pastAnalyses = pastAnalyses.filter(p => {
+          if (p.status === 'running' || p.status === 'failed') return true;
+          if (!p.id || p.id.startsWith('tmp-')) return true;
+          return serverIds.has(p.id);
+        });
+        const pruned = before - pastAnalyses.length;
+        if (pruned > 0) {
+          console.log(`[Sync] Removed ${pruned} stale localStorage entries not found on server`);
+        }
+
         savePastAnalyses();
         renderPastAnalyses();
       } catch { }
@@ -4960,7 +5011,8 @@
       if (!project) return closeDeleteModal();
       try {
         const resp = await apiFetch(`/api/results/${project.id}`, { method: 'DELETE' });
-        if (!resp.ok) throw new Error('delete failed');
+        // 200 = deleted, 404 = already gone on server — both are fine, remove from local state
+        if (!resp.ok && resp.status !== 404) throw new Error(`delete failed: ${resp.status}`);
         pastAnalyses = pastAnalyses.filter(p => p.id !== project.id);
         savePastAnalyses();
         renderPastAnalyses();
@@ -4971,7 +5023,18 @@
           history.pushState({ home: true }, '', '/home');
         }
       } catch (e) {
-        showToast('No se pudo eliminar el análisis.', 'error');
+        // Network or unexpected server error — still remove from localStorage to unblock the user
+        console.warn('[Delete] server error, removing from local state anyway:', e);
+        pastAnalyses = pastAnalyses.filter(p => p.id !== project.id);
+        savePastAnalyses();
+        renderPastAnalyses();
+        if (analysisId === project.id) {
+          analysisId = null;
+          currentProjectSlug = null;
+          resetToLanding();
+          history.pushState({ home: true }, '', '/home');
+        }
+        showToast('Análisis eliminado localmente (error de servidor ignorado).', 'warning');
       } finally {
         closeDeleteModal();
       }

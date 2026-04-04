@@ -69,6 +69,9 @@ function findPython() {
     return null;
   };
 
+  // Prefer the dev venv's Python first — guaranteed to have all deps installed.
+  const venvPythonDev = getVenvPythonPath(path.join(PROJECT_ROOT, '.venv'));
+
   // Prefer specific 3.11–3.13 versions first — explicit absolute paths for macOS GUI apps
   // where PATH is minimal and generic `python3` may resolve to an incompatible 3.14+.
   const candidates = process.platform === 'win32'
@@ -105,6 +108,7 @@ function runCommand(cmd, args, options = {}) {
       cwd: options.cwd,
       env: options.env,
       stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
     });
     let stdout = '';
     let stderr = '';
@@ -197,6 +201,11 @@ function startBackend() {
 
     const env = { ...process.env };
       env.PATH = path.dirname(pythonExe) + path.delimiter + (env.PATH || '');
+    if (!IS_DEV) {
+      env.AGENTICTM_DATA_DIR = path.join(app.getPath('userData'), 'data');
+      env.AGENTICTM_OUTPUT = path.join(app.getPath('userData'), 'output');
+      env.AGENTICTM_KB_DIR = path.join(PROJECT_ROOT, 'knowledge_base');
+    }
     if (IS_DEV) {
       const venvSitePackages = path.join(PROJECT_ROOT, '.venv', 'lib');
       if (fs.existsSync(venvSitePackages)) {
@@ -343,6 +352,7 @@ function checkOllama() {
 // ---------------------------------------------------------------------------
 
 function createSplashWindow() {
+  const iconPath = path.join(__dirname, 'icons', 'icon.ico');
   splashWindow = new BrowserWindow({
     width: 480,
     height: 360,
@@ -351,6 +361,7 @@ function createSplashWindow() {
     resizable: false,
     alwaysOnTop: true,
     backgroundColor: '#1b1b1b',
+    icon: iconPath,
     show: false,
     webPreferences: {
       nodeIntegration: false,
@@ -358,20 +369,29 @@ function createSplashWindow() {
     },
   });
 
+  // Read logo as data URI to avoid file:// security restrictions in Chromium
   const logoFilePath = path.join(PROJECT_ROOT, 'logo-philocyber.png');
+  let logoDataUri = '';
+  try {
+    const logoBuffer = fs.readFileSync(logoFilePath);
+    logoDataUri = `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  } catch { /* logo will just not show */ }
+
   splashWindow.loadFile(path.join(__dirname, 'splash.html'), {
-    query: { logoPath: logoFilePath },
+    query: { logoDataUri },
   });
   splashWindow.once('ready-to-show', () => splashWindow.show());
 }
 
 function createMainWindow(port) {
+  const iconPath = path.join(__dirname, 'icons', 'icon.ico');
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
     minWidth: 900,
     minHeight: 600,
     backgroundColor: '#1b1b1b',
+    icon: iconPath,
     show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
@@ -383,6 +403,14 @@ function createMainWindow(port) {
   });
 
   mainWindow.loadURL(`http://127.0.0.1:${port}`);
+
+  // Force our icon after page load — Electron resets it when loading http:// URLs
+  mainWindow.webContents.on('page-favicon-updated', () => {
+    mainWindow.setIcon(iconPath);
+  });
+  mainWindow.webContents.on('did-finish-load', () => {
+    mainWindow.setIcon(iconPath);
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);

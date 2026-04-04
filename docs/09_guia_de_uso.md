@@ -65,16 +65,16 @@ pip install -r requirements.txt
 curl -fsSL https://ollama.com/install.sh | sh
 
 # Descargar modelos (puede tardar según la conexión)
-ollama pull qwen3.5:4b          # Quick Thinker — ~2.7 GB
-ollama pull qwen3.5:27b         # Deep Thinker — ~17 GB
-ollama pull qwen3.5:9b          # STRIDE/Debate/VLM — ~6 GB
-ollama pull nomic-embed-text    # Embeddings — ~274 MB
+ollama pull qwen3:4b                  # Quick Thinker — ~2.7 GB
+ollama pull gemma4:26b                # Deep Thinker — ~10 GB (MoE)
+ollama pull qwen3.5:9b                # STRIDE/Debate/VLM — ~6 GB
+ollama pull nomic-embed-text-v2-moe   # Embeddings — ~274 MB (8K, multilingual)
 
 # Verificar
 ollama list
 ```
 
-> **Nota**: Si tenés menos de 16 GB de RAM, podés usar `qwen3.5:4b` para todos los tiers. Ver [08 — Configuración](08_configuracion.md) para ajustes por hardware.
+> **Nota**: Si tenés menos de 16 GB de RAM, podés usar `qwen3:4b` para todos los tiers. Ver [08 — Configuración](08_configuracion.md) para ajustes por hardware.
 
 ### 5. Inicializar Estructura
 
@@ -429,10 +429,10 @@ services:
 docker exec -it agentictm-ollama-1 bash
 
 # Dentro del contenedor:
-ollama pull qwen3.5:4b
-ollama pull qwen3.5:27b
+ollama pull qwen3:4b
+ollama pull gemma4:26b
 ollama pull qwen3.5:9b
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text-v2-moe
 ```
 
 ### Solo Dockerfile
@@ -478,11 +478,11 @@ python -m venv .venv && .venv\Scripts\activate
 pip install -r requirements.txt
 
 # 2. Modelos (la primera vez)
-ollama pull qwen3.5:4b
-ollama pull nomic-embed-text
+ollama pull qwen3:4b
+ollama pull nomic-embed-text-v2-moe
 
 # 3. Config mínima (un solo modelo para todo)
-echo '{"quick_thinker":{"model":"qwen3.5:4b"},"deep_thinker":{"model":"qwen3.5:4b"},"stride_thinker":{"model":"qwen3.5:4b"},"vlm":{"model":"qwen3.5:4b"},"pipeline":{"max_debate_rounds":2,"analyst_execution_mode":"cascade","max_parallel_analysts":1}}' > config.json
+echo '{"quick_thinker":{"model":"qwen3:4b"},"deep_thinker":{"model":"qwen3:4b"},"stride_thinker":{"model":"qwen3:4b"},"vlm":{"model":"qwen3:4b"},"pipeline":{"max_debate_rounds":2,"analyst_execution_mode":"cascade","max_parallel_analysts":1}}' > config.json
 
 # 4. Iniciar
 python run.py

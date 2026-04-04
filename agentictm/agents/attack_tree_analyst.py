@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import re as _re
 
-from agentictm.agents.base import invoke_agent, extract_json_from_response
+from agentictm.agents.base import invoke_agent, extract_json_from_response, extract_threats_from_markdown
 from agentictm.rag.tools import ANALYST_TOOLS
 from agentictm.state import ThreatModelState
 
@@ -165,7 +165,7 @@ def _validate_and_prune_mermaid(response: str) -> str:
     if node_count > 80:
         logger.warning(
             "[Attack Tree] OVERSIZED Mermaid output detected: %d nodes found "
-            "(expected ≤50). Model ignored size constraints.",
+            "(expected <=50). Model ignored size constraints.",
             node_count,
         )
     return response
@@ -415,13 +415,21 @@ def run_attack_tree_analyst(
         for tree in parsed.get("attack_trees", []):
             threats_raw.extend(tree.get("threats", []))
 
-    # FALLBACK: If JSON parsing failed or produced 0 threats, extract from Mermaid
+    # FALLBACK 1: extract from Mermaid diagrams
     if not threats_raw:
         logger.warning(
             "[Attack Tree Initial] JSON extraction produced 0 threats. "
             "Attempting Mermaid leaf-node fallback..."
         )
         threats_raw = _extract_leaf_threats_from_mermaid(response)
+
+    # FALLBACK 2: extract from markdown sections (LLM returned prose)
+    if not threats_raw:
+        logger.warning(
+            "[Attack Tree Initial] Mermaid fallback produced 0 threats. "
+            "Attempting markdown fallback..."
+        )
+        threats_raw = extract_threats_from_markdown(response, "ATTACK_TREE")
 
     report = {
         "methodology": "ATTACK_TREE",
@@ -460,13 +468,21 @@ def run_attack_tree_enriched(
         for tree in parsed.get("attack_trees", []):
             threats_raw.extend(tree.get("threats", []))
 
-    # FALLBACK: If JSON parsing failed or produced 0 threats, extract from Mermaid
+    # FALLBACK 1: extract from Mermaid diagrams
     if not threats_raw:
         logger.warning(
             "[Attack Tree Enriched] JSON extraction produced 0 threats. "
             "Attempting Mermaid leaf-node fallback..."
         )
         threats_raw = _extract_leaf_threats_from_mermaid(response)
+
+    # FALLBACK 2: extract from markdown sections (LLM returned prose)
+    if not threats_raw:
+        logger.warning(
+            "[Attack Tree Enriched] Mermaid fallback produced 0 threats. "
+            "Attempting markdown fallback..."
+        )
+        threats_raw = extract_threats_from_markdown(response, "ATTACK_TREE_ENRICHED")
 
     report = {
         "methodology": "ATTACK_TREE_ENRICHED",

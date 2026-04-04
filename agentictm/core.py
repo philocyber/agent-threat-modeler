@@ -127,9 +127,9 @@ class AgenticTM:
         # RAM vs model size warning
         ram_gb = AgenticTMConfig._detect_ram_gb()
         _model_sizes_gb = {
-            "qwen3.5:4b": 3.4,
+            "qwen3:4b": 2.7,
             "qwen3.5:9b": 6.6,
-            "qwen3.5:27b": 17.4,
+            "gemma4:26b": 10.0,
         }
         for role, model in ollama_models.items():
             size_gb = _model_sizes_gb.get(model)
@@ -148,7 +148,7 @@ class AgenticTM:
         """
         from agentictm.rag.indexer import index_all
 
-        logger.info("📚 Indexando knowledge base desde: %s", self.config.rag.knowledge_base_path)
+        logger.info("Indexing knowledge base from: %s", self.config.rag.knowledge_base_path)
 
         # Use quick_thinker for generating tree node summaries
         tree_llm = self.llm_factory.quick if self.config.rag.tree_summaries else None
@@ -167,10 +167,10 @@ class AgenticTM:
         return results
 
     def _sync_knowledge_base_if_needed(self) -> dict[str, Any]:
-        """Check KB status without blocking analysis on a full reindex.
+        """Auto-index any new/changed KB documents before the analysis runs.
 
-        Only logs a warning when unindexed documents are found so the user
-        can trigger reindexing via POST /api/knowledge-base/reindex.
+        Performs an *incremental* index (only new/changed docs) so analysis
+        always has the freshest RAG data without requiring a manual reindex.
 
         Returns:
             Dict with sync metadata for logging/diagnostics.
@@ -195,20 +195,38 @@ class AgenticTM:
             d["name"] for d in docs
             if (not d.get("indexed", False)) or d.get("changed", False)
         ][:5]
+
         logger.info(
-            "Knowledge base: %d/%d docs indexed. %d new/changed docs not yet indexed (%s%s). "
-            "Analysis proceeds with existing indices.",
+            "Knowledge base: %d/%d docs indexed. Auto-indexing %d new/changed docs (%s%s)...",
             indexed_count, len(docs), changed_count,
             ", ".join(changed_names),
             "..." if changed_count > 5 else "",
         )
-        return {
-            "checked": True,
-            "changes_detected": True,
-            "documents": len(docs),
-            "changed_documents": changed_count,
-            "indexed_now": False,
-        }
+
+        try:
+            results = self.index_knowledge_base(force=False)
+            logger.info(
+                "Auto-index completed: %s",
+                {k: len(v) if isinstance(v, list) else v for k, v in results.items()} if isinstance(results, dict) else results,
+            )
+            return {
+                "checked": True,
+                "changes_detected": True,
+                "documents": len(docs),
+                "changed_documents": changed_count,
+                "indexed_now": True,
+            }
+        except Exception as exc:
+            logger.warning(
+                "Auto-index failed (%s); analysis proceeds with existing indices.", exc,
+            )
+            return {
+                "checked": True,
+                "changes_detected": True,
+                "documents": len(docs),
+                "changed_documents": changed_count,
+                "indexed_now": False,
+            }
 
     def analyze(
         self,
@@ -277,7 +295,7 @@ class AgenticTM:
 
             threats_count = len(result.get("threats_final", []))
             logger.info(
-                "Analysis completed — %d threats (cid=%s) — log: %s",
+                "Analysis completed -- %d threats (cid=%s) -- log: %s",
                 threats_count, correlation_id, pipeline_log.log_path,
                 extra={"threats_count": threats_count},
             )

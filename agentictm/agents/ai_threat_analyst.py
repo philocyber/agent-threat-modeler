@@ -262,7 +262,35 @@ Reference specific MITRE ATLAS techniques where applicable (AML.T0000 format).
 
 
 def _has_ai_components(state: ThreatModelState) -> bool:
-    """Detecta si el sistema tiene componentes de IA/ML/Agénticos."""
+    """Detecta si el sistema tiene componentes de IA/ML/Agénticos.
+
+    Uses a two-tier keyword strategy (strong vs ambiguous) with word-boundary
+    matching to avoid false positives on non-AI systems.
+    """
+    import re as _re
+
+    _STRONG_AI_KEYWORDS = {
+        "llm", "gpt", "langchain", "langgraph", "ollama", "openai",
+        "anthropic", "neural", "embedding", "rag", "transformer", "bert",
+        "chatbot", "nlp", "pytorch", "tensorflow", "huggingface",
+        "fine-tun", "rlhf", "dpo", "sagemaker", "bedrock", "copilot",
+        "gemini", "claude", "crewai", "autogen", "agentic",
+        "machine learning", "deep learning", "artificial intelligence",
+        "ml model", "model serving", "vector store",
+        "multi-agent", "multi_agent", "a2a", "agent2agent",
+        "agent-to-agent", "agent network protocol",
+        "mcp-get", "mcp_installer", "tool_registry",
+        "diffusion", "midjourney", "dall-e", "whisper",
+        "tokeniz", "function_calling", "tool_use",
+        "agent_card", "agent card",
+    }
+    _AMBIGUOUS_AI_KEYWORDS = {
+        "model", "ai", "ml", "agent", "prompt", "inference", "training",
+        "prediction", "adversarial", "generative", "vector", "plugin",
+        "orchestrat", "cognitive", "reinforcement", "reward", "alignment",
+        "scoring model", "mcp",
+    }
+
     def _to_str(val: object) -> str:
         if isinstance(val, str):
             return val
@@ -272,44 +300,28 @@ def _has_ai_components(state: ThreatModelState) -> bool:
             return " ".join(str(i) for i in val)
         return str(val) if val else ""
 
-    ai_keywords = {
-        # Core AI/ML
-        "llm", "model", "ai", "ml", "gpt", "agent", "agentic", "rag", "vector",
-        "embedding", "neural", "inference", "training", "prediction",
-        # Frameworks & providers
-        "langchain", "langgraph", "autogen", "crewai", "ollama", "openai",
-        "anthropic", "transformer", "bert", "chatbot", "nlp", "prompt",
-        "bedrock", "sagemaker", "cognitive", "copilot", "gemini", "claude",
-        # Tool use & function calling
-        "mcp", "tool_use", "function_calling", "fine-tun",
-        # Generative models
-        "diffusion", "stable", "midjourney", "dall-e", "whisper",
-        # ML libraries
-        "tensorflow", "pytorch", "huggingface", "tokeniz",
-        # RLHF / alignment
-        "reinforcement", "reward", "alignment", "rlhf", "dpo",
-        # Multi-agent systems
-        "multi-agent", "multi_agent", "orchestrat",
-        # AI Agent Protocols (CIC/UNB 2026)
-        "a2a", "agent2agent", "agent-to-agent", "agora", "anp",
-        "agent_network", "agent network protocol",
-        "tool_registry", "tool registry", "agent_card", "agent card",
-        "did", "decentralized_identity", "decentralized identity",
-        "protocol_document", "protocol document",
-        # Plugin ecosystems
-        "plugin", "mcp-get", "mcp_installer", "mcp-installer",
-        "tool_server", "tool server", "tool_binding",
-    }
+    def _wb_match(keyword: str, text: str) -> bool:
+        return bool(_re.search(r"\b" + _re.escape(keyword) + r"\b", text))
 
-    text_to_check = (
+    arch_text = (
         _to_str(state.get("system_description", "")).lower()
-        + " "
-        + _to_str(state.get("raw_input", "")).lower()
         + " "
         + json.dumps(state.get("components", []), ensure_ascii=False).lower()
     )
 
-    return any(kw in text_to_check for kw in ai_keywords)
+    if any(_wb_match(kw, arch_text) for kw in _STRONG_AI_KEYWORDS):
+        return True
+    ambiguous_hits = sum(1 for kw in _AMBIGUOUS_AI_KEYWORDS if _wb_match(kw, arch_text))
+    if ambiguous_hits >= 3:
+        return True
+
+    raw_input = _to_str(state.get("raw_input", "")).lower()
+    strong_in_raw = [kw for kw in _STRONG_AI_KEYWORDS if _wb_match(kw, raw_input)]
+    if strong_in_raw:
+        logger.info("[AI Threat Analyst] Strong AI keywords in raw_input: %s", strong_in_raw[:5])
+        return True
+
+    return False
 
 
 def _build_human_prompt(state: ThreatModelState) -> str:

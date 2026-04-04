@@ -215,6 +215,70 @@ def _find_image_paths(raw_input: str) -> list[Path]:
     return paths
 
 
+_MAX_IMAGE_BYTES = 2 * 1024 * 1024  # 2 MB — above this we auto-resize
+_MAX_IMAGE_DIMENSION = 1920  # longest side after resize
+_JPEG_QUALITY = 85
+
+
+def _maybe_resize_image(image_path: Path) -> tuple[bytes, str]:
+    """Return (image_bytes, mime_type), auto-resizing if the file is too large.
+
+    Uses Pillow when the image exceeds ``_MAX_IMAGE_BYTES`` so the VLM receives
+    a manageably-sized payload instead of a 6 MB+ PNG.
+    """
+    raw_bytes = image_path.read_bytes()
+    mime = _get_image_mime(image_path)
+
+    if len(raw_bytes) <= _MAX_IMAGE_BYTES:
+        return raw_bytes, mime
+
+    try:
+        from PIL import Image as PILImage
+        import io
+
+        original_mb = len(raw_bytes) / (1024 * 1024)
+        img = PILImage.open(io.BytesIO(raw_bytes))
+
+        # Downscale so the longest side is at most _MAX_IMAGE_DIMENSION
+        w, h = img.size
+        scale = min(_MAX_IMAGE_DIMENSION / max(w, h), 1.0)
+        if scale < 1.0:
+            new_w, new_h = int(w * scale), int(h * scale)
+            img = img.resize((new_w, new_h), PILImage.LANCZOS)
+            logger.info(
+                "[Architecture Parser] Resized %s from %dx%d to %dx%d",
+                image_path.name, w, h, new_w, new_h,
+            )
+
+        # Re-encode as JPEG (much smaller than PNG for photos/diagrams)
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+        resized_bytes = buf.getvalue()
+        resized_mb = len(resized_bytes) / (1024 * 1024)
+        logger.info(
+            "[Architecture Parser] Compressed %s: %.2f MB -> %.2f MB (%.0f%% reduction)",
+            image_path.name, original_mb, resized_mb,
+            (1 - resized_mb / original_mb) * 100,
+        )
+        return resized_bytes, "image/jpeg"
+
+    except ImportError:
+        logger.warning(
+            "[Architecture Parser] Pillow not installed -- sending %.2f MB image as-is. "
+            "Install Pillow (`pip install Pillow`) for automatic resize.",
+            len(raw_bytes) / (1024 * 1024),
+        )
+        return raw_bytes, mime
+    except Exception as exc:
+        logger.warning(
+            "[Architecture Parser] Image resize failed for %s: %s -- sending original",
+            image_path.name, exc,
+        )
+        return raw_bytes, mime
+
+
 def _encode_image_base64(image_path: Path) -> str:
     """Read an image file and return base64-encoded string."""
     with open(image_path, "rb") as f:
@@ -255,6 +319,33 @@ _VLM_RETRY_PROMPTS = [
 ]
 
 
+def _abort_ollama_generation(model_name: str) -> None:
+    """Send a trivial request to Ollama to flush the stuck VLM generation.
+
+    Ollama processes requests serially per model. When a VLM call times out
+    in the Python thread-pool the actual HTTP request keeps running on the
+    Ollama side, blocking every subsequent call.  Sending a minimal
+    ``/api/generate`` with ``keep_alive=0`` forces Ollama to finish (or
+    discard) the current generation and unload the model from VRAM.
+    """
+    import os
+    try:
+        import requests as _req
+        base = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+        logger.info(
+            "[Architecture Parser] Sending abort/flush request to Ollama for model=%s",
+            model_name,
+        )
+        _req.post(
+            f"{base}/api/generate",
+            json={"model": model_name, "prompt": "", "keep_alive": 0},
+            timeout=15,
+        )
+        logger.info("[Architecture Parser] Ollama abort/flush completed for %s", model_name)
+    except Exception as exc:
+        logger.warning("[Architecture Parser] Ollama abort/flush failed: %s", exc)
+
+
 def _invoke_vlm_for_image(
     vlm: BaseChatModel, image_path: Path, additional_context: str = "",
     *, image_timeout: int = 300, max_retries: int = 2,
@@ -283,8 +374,8 @@ def _invoke_vlm_for_image(
     )
 
     encode_start = time.perf_counter()
-    img_b64 = _encode_image_base64(image_path)
-    mime = _get_image_mime(image_path)
+    img_bytes, mime = _maybe_resize_image(image_path)
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
     encode_elapsed = time.perf_counter() - encode_start
     logger.info(
         "[Architecture Parser] Image encoded to base64 in %.2fs | b64_size=%.1f KB",
@@ -325,15 +416,9 @@ def _invoke_vlm_for_image(
         )
 
         if image_timeout and image_timeout > 0:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                def _vlm_invoke_wrapper():
-                    try:
-                        r = vlm.invoke(messages)
-                        return r
-                    except Exception:
-                        raise
-
-                future = executor.submit(_vlm_invoke_wrapper)
+            executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
+                future = executor.submit(vlm.invoke, messages)
                 try:
                     response: AIMessage = future.result(timeout=image_timeout)
                 except concurrent.futures.TimeoutError:
@@ -343,9 +428,12 @@ def _invoke_vlm_for_image(
                         "(limit=%ds, attempt %d) | model=%s",
                         elapsed, image_path.name, image_timeout, attempt + 1, model_name,
                     )
+                    _abort_ollama_generation(model_name)
                     raise TimeoutError(
                         f"VLM timed out after {image_timeout}s for {image_path.name}"
                     ) from None
+            finally:
+                executor.shutdown(wait=False, cancel_futures=True)
         else:
             response = vlm.invoke(messages)
 
@@ -754,7 +842,7 @@ def _consolidation_pass(
         new_count = len(consolidated.get("components", []))
         logger.info(
             "[Architecture Parser] Consolidation completed in %.1fs | "
-            "components: %d → %d | data_flows: %d → %d",
+            "components: %d -> %d | data_flows: %d -> %d",
             elapsed,
             old_count, new_count,
             len(vlm_parsed.get("data_flows", [])),
@@ -871,10 +959,12 @@ def run_architecture_parser(
                     logger.info("[Architecture Parser] VLM output:\n%s", vlm_response)
                 except TimeoutError:
                     vlm_failures += 1
+                    file_mb = img_path.stat().st_size / (1024 * 1024)
                     logger.warning(
-                        "[Architecture Parser] VLM SKIPPED %s (timeout %ds). "
-                        "%d/%d images failed so far.",
-                        img_path.name, vlm_image_timeout,
+                        "[Architecture Parser] VLM TIMEOUT - Image '%s' (%.1f MB) "
+                        "skipped after %ds timeout. Consider using a smaller VLM "
+                        "model or smaller images. %d/%d images failed so far.",
+                        img_path.name, file_mb, vlm_image_timeout,
                         vlm_failures, len(image_paths),
                     )
                 except Exception as exc:

@@ -18,16 +18,17 @@ class LLMConfig(BaseModel):
     """Configuración de un proveedor LLM.
 
     Modelos recomendados para Ollama (16-32 GB VRAM):
-    ┌────────────────┬──────────────────┬───────┬──────────────────────────────────┐
-    │ Rol            │ Modelo           │  VRAM │ Notas                            │
-    ├────────────────┼──────────────────┼───────┼──────────────────────────────────┤
-    │ quick_thinker  │ qwen3.5:4b       │ ~3.4GB│ Fast analysts (PASTA/AT/MAESTRO) │
-    │ deep_thinker   │ qwen3.5:27b      │ ~17GB │ Parser + Synthesizer (critical)  │
-    │ stride_thinker │ qwen3.5:9b       │ ~6.6GB│ STRIDE/debate (structured)       │
-    │ vlm            │ qwen3.5:9b       │ ~6.6GB│ Native multimodal (text+image)   │
-    └────────────────┴──────────────────┴───────┴──────────────────────────────────┘
+    ┌────────────────┬────────────────────────────┬───────┬──────────────────────────────────┐
+    │ Rol            │ Modelo                     │  VRAM │ Notas                            │
+    ├────────────────┼────────────────────────────┼───────┼──────────────────────────────────┤
+    │ quick_thinker  │ qwen3:4b                   │ ~2.7GB│ Fast analysts (PASTA/AT/MAESTRO) │
+    │ deep_thinker   │ gemma4:26b                 │ ~10GB │ Parser + Synthesizer (MoE 3.8B)  │
+    │ stride_thinker │ qwen3.5:9b                 │ ~6.6GB│ STRIDE/debate (structured)       │
+    │ vlm            │ qwen3.5:9b                 │ ~6.6GB│ Native multimodal (text+image)   │
+    └────────────────┴────────────────────────────┴───────┴──────────────────────────────────┘
 
-    All Qwen3.5 models support 256K context and native text+image input.
+    Qwen3.5:9b supports 256K context and native text+image input.
+    Gemma4:26b is a MoE model (3.8B active params) -- 2.5x faster, lower VRAM.
     """
 
     provider: str = "ollama"
@@ -52,7 +53,7 @@ class RAGConfig(BaseModel):
     vector_store_path: Path = Path("./data/vector_stores")
     page_index_path: Path = Path("./data/page_indices")  # PageIndex tree JSON files
     embedding_provider: str = "ollama"
-    embedding_model: str = "nomic-embed-text"
+    embedding_model: str = "nomic-embed-text-v2-moe"
     chunk_size: int = 1000
     chunk_overlap: int = 200
     retrieval_top_k: int = 5
@@ -178,17 +179,17 @@ class AgenticTMConfig(BaseModel):
     # LLM configs
     quick_thinker: LLMConfig = Field(
         default_factory=lambda: LLMConfig(
-            model="qwen3.5:4b",
-            think=False,  # nothink → faster, cleaner JSON, forces RAG pre-invoke
+            model="qwen3:4b",
+            think=False,  # nothink -> faster, cleaner JSON, forces RAG pre-invoke
         )
     )
     deep_thinker: LLMConfig = Field(
         default_factory=lambda: LLMConfig(
-            model="qwen3.5:27b",
+            model="gemma4:26b",
             temperature=0.2,
             timeout=600,
             num_gpu=-1,
-            think=False,  # qwen3.5 has built-in reasoning; /think not needed
+            think=False,  # gemma4 MoE -- 2.5x faster than qwen3.5:27b, lower VRAM
         )
     )
     stride_thinker: LLMConfig = Field(
@@ -225,22 +226,22 @@ class AgenticTMConfig(BaseModel):
 
         | RAM      | deep_thinker  | stride_thinker | quick_thinker | vlm          |
         |----------|---------------|----------------|---------------|--------------|
-        | <=16 GB  | qwen3.5:4b    | qwen3.5:4b     | qwen3.5:4b    | qwen3.5:4b   |
-        | 16-32 GB | qwen3.5:9b    | qwen3.5:9b     | qwen3.5:4b    | qwen3.5:9b   |
-        | 32-64 GB | qwen3.5:27b   | qwen3.5:9b     | qwen3.5:4b    | qwen3.5:9b   |
-        | 64+ GB   | qwen3.5:27b   | qwen3.5:9b     | qwen3.5:4b    | qwen3.5:9b   |
+        | <=16 GB  | qwen3:4b      | qwen3:4b       | qwen3:4b      | qwen3:4b     |
+        | 16-32 GB | qwen3.5:9b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
+        | 32-64 GB | gemma4:26b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
+        | 64+ GB   | gemma4:26b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
         """
         ram_gb = cls._detect_ram_gb()
-        _config_logger.info("Detected system RAM: %.1f GB — selecting model profile", ram_gb)
+        _config_logger.info("Detected system RAM: %.1f GB -- selecting model profile", ram_gb)
 
         if ram_gb <= 16:
-            profile = ("qwen3.5:4b", "qwen3.5:4b", "qwen3.5:4b", "qwen3.5:4b")
+            profile = ("qwen3:4b", "qwen3:4b", "qwen3:4b", "qwen3:4b")
         elif ram_gb <= 32:
-            profile = ("qwen3.5:9b", "qwen3.5:9b", "qwen3.5:4b", "qwen3.5:9b")
+            profile = ("qwen3.5:9b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
         elif ram_gb <= 64:
-            profile = ("qwen3.5:27b", "qwen3.5:9b", "qwen3.5:4b", "qwen3.5:9b")
+            profile = ("gemma4:26b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
         else:
-            profile = ("qwen3.5:27b", "qwen3.5:9b", "qwen3.5:4b", "qwen3.5:9b")
+            profile = ("gemma4:26b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
 
         deep_model, stride_model, quick_model, vlm_model = profile
         _config_logger.info(
@@ -373,7 +374,7 @@ class AgenticTMConfig(BaseModel):
                         import json as _json
                         data = _json.loads(resp.read())
                         available_models = {m["name"] for m in data.get("models", [])}
-                        _logger.info("  ✓ Ollama connected at %s (%d models available)", ollama_url, len(available_models))
+                        _logger.info("  [OK] Ollama connected at %s (%d models available)", ollama_url, len(available_models))
 
                         # Check each configured model
                         for role, cfg in [
@@ -390,26 +391,26 @@ class AgenticTMConfig(BaseModel):
                                 or any(m.startswith(model_name.split(":")[0] + ":") for m in available_models)
                             )
                             if found:
-                                _logger.info("    ✓ %s: %s", role, model_name)
+                                _logger.info("    [OK] %s: %s", role, model_name)
                             else:
                                 warnings.append(f"Model '{model_name}' ({role}) not found in Ollama. Available: {', '.join(sorted(available_models)[:10])}")
-                                _logger.warning("    ✗ %s: %s NOT FOUND", role, model_name)
+                                _logger.warning("    [MISS] %s: %s NOT FOUND", role, model_name)
                     else:
                         warnings.append(f"Ollama returned status {resp.status}")
             except Exception as e:
                 warnings.append(f"Cannot connect to Ollama at {ollama_url}: {e}")
-                _logger.warning("  ✗ Ollama not reachable at %s: %s", ollama_url, e)
+                _logger.warning("  [FAIL] Ollama not reachable at %s: %s", ollama_url, e)
 
         # -- Check security --
         if not self.security.api_key:
             warnings.append("No API key configured (security.api_key). API endpoints are unprotected.")
-            _logger.warning("  ⚠ No API key configured — endpoints are unprotected")
+            _logger.warning("  [!] No API key configured -- endpoints are unprotected")
 
         # -- Check vector stores --
         vs_path = Path(self.rag.vector_store_path)
         if vs_path.exists():
             stores = [d.name for d in vs_path.iterdir() if d.is_dir()]
-            _logger.info("  ✓ %d vector stores found", len(stores))
+            _logger.info("  [OK] %d vector stores found", len(stores))
         else:
             _logger.info("  ○ No vector stores yet (run index_knowledge_base)")
 
@@ -417,7 +418,7 @@ class AgenticTMConfig(BaseModel):
         tree_path = Path(self.rag.page_index_path) if self.rag.page_index_path else None
         if tree_path and tree_path.exists():
             trees = list(tree_path.glob("*.json"))
-            _logger.info("  ✓ %d tree indices found", len(trees))
+            _logger.info("  [OK] %d tree indices found", len(trees))
         else:
             _logger.info("  ○ No tree indices yet")
 

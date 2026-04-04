@@ -46,7 +46,7 @@ Las razones son concretas y accionables:
 | # | Problema | Severidad | Impacto en Producción |
 |---|---------|-----------|----------------------|
 | 1 | PDF upload corrupto (binary leído como UTF-8) | **Crítico** | Usuarios suben PDFs → basura en el análisis |
-| 2 | quick_thinker == deep_thinker (ambos qwen3:8b) | **Alto** | Se pierde la arquitectura multi-tier diseñada |
+| 2 | quick_thinker == deep_thinker (ambos qwen3:8b) | **Alto** | Se pierde la arquitectura multi-tier diseñada | ✅ Resuelto: 4 tiers con qwen3:4b / qwen3.5:9b / gemma4:26b |
 | 3 | Inconsistencia ES/EN en prompts | **Alto** | Modelos 8B confunden idioma ↔ peor output |
 | 4 | JSON extraction por regex (sin structured output) | **Alto** | Fallas silenciosas, datos perdidos |
 | 5 | `max_validation_iterations` configurado pero NO usado | **Medio** | Feature muerta en config visible al usuario |
@@ -154,12 +154,14 @@ Buena idea conceptualmente, pero **no se alimenta de los threats generados por l
 
 ## 5. Configuración de Modelos LLM
 
-### Hallazgo Crítico: quick_thinker == deep_thinker
+### Hallazgo Crítico: quick_thinker == deep_thinker (✅ Resuelto)
 
 ```json
-"quick_thinker": { "model": "qwen3:8b", "temperature": 0.3 },
-"deep_thinker": { "model": "qwen3:8b", "temperature": 0.2 }
+"quick_thinker": { "model": "qwen3:4b", "temperature": 0.3 },
+"deep_thinker": { "model": "gemma4:26b", "temperature": 0.2 }
 ```
+
+> **Nota v0.3.2:** Este hallazgo fue resuelto. Ahora hay 4 tiers diferenciados: quick=qwen3:4b, stride=qwen3.5:9b, deep=gemma4:26b, vlm=qwen3.5:9b.
 
 La arquitectura **diseña** una diferenciación multi-tier:
 - `quick_thinker`: analistas STRIDE, PASTA, Attack Tree, MAESTRO, AI Threat, debate
@@ -177,11 +179,12 @@ Pero en la configuración actual **ambos son el mismo modelo** con apenas 0.1 de
 
 ### Recomendación
 
-| Tier | Uso | Modelo Mínimo Sugerido |
+| Tier | Uso | Modelo Actual |
 |------|-----|----------------------|
-| `quick_thinker` | Analistas individuales, debate | qwen3:8b (OK) |
-| `deep_thinker` | Synthesizer, validator, enriched tree | qwen3:32b o qwen3:30b-a3b (MoE) |
-| `vlm` | Diagramas | llava:13b (OK) o llava:34b para diagramas complejos |
+| `quick_thinker` | Analistas individuales, debate | qwen3:4b |
+| `deep_thinker` | Synthesizer, validator, enriched tree | gemma4:26b |
+| `stride_thinker` | STRIDE analyst, debate | qwen3.5:9b |
+| `vlm` | Diagramas (nativo en Qwen3.5) | qwen3.5:9b |
 
 ---
 
@@ -279,7 +282,7 @@ def extract_json_from_response(text):
 
 ```python
 # Usar format="json" en la inicialización del LLM para agentes que requieren JSON
-llm = ChatOllama(model="qwen3:8b", format="json", temperature=0.3)
+llm = ChatOllama(model="qwen3:4b", format="json", temperature=0.3)
 ```
 
 Esto es **la fix más impactante y fácil** de toda esta evaluación. Una línea de cambio que elimina la mayor fuente de fragilidad.
@@ -424,7 +427,7 @@ El frontend es un SPA single-file en `index.html` con localStorage + server pers
 
 | # | Hallazgo | Fix Estimado |
 |---|---------|-------------|
-| H1 | quick_thinker == deep_thinker (misma qwen3:8b) | Config change |
+| H1 | quick_thinker == deep_thinker (misma qwen3:8b) | ✅ Resuelto |
 | H2 | Inconsistencia ES/EN en prompts | 4 horas |
 | H3 | AI Threat Analyst prompt demasiado largo para 8B | 3 horas |
 | H4 | No hay métricas de calidad de parsing/output | 1 día |

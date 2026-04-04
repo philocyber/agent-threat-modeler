@@ -67,8 +67,11 @@ _INJECTION_PATTERNS: list[tuple[re.Pattern, str, str]] = [
     (re.compile(r"do\s+not\s+(analyze|perform|run|execute)\s+(the|a|an)?\s*(threat|security|analysis)", re.I),
      "output_manipulation", "high"),
 
-    # Data exfiltration
-    (re.compile(r"(send|post|fetch|curl|wget|http)\s+.*(api|endpoint|url|webhook)", re.I),
+    # Data exfiltration — only match imperative exfiltration commands, not
+    # architectural descriptions that naturally mention HTTP/API terms.
+    (re.compile(r"(curl|wget)\s+(https?://|--data)", re.I),
+     "exfiltration_attempt", "high"),
+    (re.compile(r"(send|post|exfiltrate)\s+(this|the|all|my|your)\s+.{0,40}(to|via)\s+(https?://|an?\s+external)", re.I),
      "exfiltration_attempt", "high"),
 ]
 

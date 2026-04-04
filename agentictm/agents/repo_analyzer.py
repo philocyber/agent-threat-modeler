@@ -518,7 +518,7 @@ def enrich_input_with_repos(
 
     for res in repo_results:
         if res.error:
-            parts.append(f"\n⚠️ **{res.repo.owner}/{res.repo.repo}**: {res.error}\n")
+            parts.append(f"\n[WARNING] **{res.repo.owner}/{res.repo.repo}**: {res.error}\n")
             continue
 
         if res.system_description:

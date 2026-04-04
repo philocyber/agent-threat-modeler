@@ -142,7 +142,7 @@ def _load_pdf_pymupdf(path: Path) -> list[Document]:
                 ))
         pdf.close()
     except Exception as exc:
-        logger.error("PyMuPDF failed for %s: %s — falling back to text", path, exc)
+        logger.error("PyMuPDF failed for %s: %s -- falling back to text", path, exc)
         try:
             docs = [Document(
                 page_content=path.read_text(encoding="utf-8", errors="replace"),
@@ -291,7 +291,7 @@ def index_store(
             if chunks:
                 store.add_documents(chunks)
                 total_chunks += len(chunks)
-                logger.info("  → %d chunks", len(chunks))
+                logger.info("  -> %d chunks", len(chunks))
 
             if manifest is not None:
                 manifest.setdefault(store_name, {})[file_path.name] = _file_hash(file_path)
@@ -413,7 +413,7 @@ def build_trees_for_knowledge_base(
             save_tree(doc_tree, tree_dir)
             built += 1
             logger.info(
-                "[PageIndex] ✓ %s — %d nodes",
+                "[PageIndex] [OK] %s -- %d nodes",
                 pdf_path.name, len(doc_tree.all_nodes()),
             )
         except Exception as exc:

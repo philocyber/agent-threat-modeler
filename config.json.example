@@ -3,7 +3,7 @@
 
   "quick_thinker": {
     "provider": "ollama",
-    "model": "qwen3.5:4b",
+    "model": "qwen3:4b",
     "temperature": 0.3,
     "base_url": "http://localhost:11434",
     "timeout": 300,
@@ -14,7 +14,7 @@
 
   "deep_thinker": {
     "provider": "ollama",
-    "model": "qwen3.5:4b",
+    "model": "gemma4:26b",
     "temperature": 0.2,
     "base_url": "http://localhost:11434",
     "timeout": 600,
@@ -25,7 +25,7 @@
 
   "stride_thinker": {
     "provider": "ollama",
-    "model": "qwen3.5:4b",
+    "model": "qwen3.5:9b",
     "temperature": 0.3,
     "base_url": "http://localhost:11434",
     "timeout": 600,
@@ -36,7 +36,7 @@
 
   "vlm": {
     "provider": "ollama",
-    "model": "qwen3.5:4b",
+    "model": "qwen3.5:9b",
     "temperature": 0.1,
     "base_url": "http://localhost:11434",
     "timeout": 600,
@@ -51,7 +51,7 @@
     "vector_store_path": "./data/vector_stores",
     "page_index_path": "./data/page_indices",
     "embedding_provider": "ollama",
-    "embedding_model": "nomic-embed-text",
+    "embedding_model": "nomic-embed-text-v2-moe",
     "chunk_size": 1000,
     "chunk_overlap": 200,
     "retrieval_top_k": 5,

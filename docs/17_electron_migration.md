@@ -115,9 +115,9 @@ Based on runtime profiling, these changes are critical:
 
 ### Recommended Next Steps
 
-1. **Use qwen3:1.7b for quick tasks**: ~80-100 tok/s vs ~25 tok/s (3-4x faster)
+1. **Use qwen3:4b for quick tasks**: Smaller and faster for lightweight analysis steps
 2. **Optimize prompts**: Current prompts are 2-12KB; compress for 8K context
-3. **Warm model pre-loading**: `ollama run qwen3:8b ""` at startup
+3. **Warm model pre-loading**: `ollama run qwen3:4b ""` at startup
 4. **Skip non-applicable agents**: If no AI components, skip MAESTRO + AI Threat entirely
 
 ### Projected Analysis Times (M4 16GB, single model)
@@ -125,8 +125,8 @@ Based on runtime profiling, these changes are critical:
 | Configuration | Estimated Time | Notes |
 |--------------|---------------|-------|
 | Before optimization | 50-60 min | 40K ctx, thinking on, 11.4GB VRAM |
-| After optimization (qwen3:8b) | 15-20 min | 8K ctx, thinking off, 6.55GB VRAM |
-| With qwen3:1.7b quick tier | 8-12 min | 1.7b for analysts, 8b for synth |
+| After optimization (qwen3:4b) | 15-20 min | 8K ctx, thinking off, ~2.7GB VRAM |
+| With qwen3.5:9b deep tier | 8-12 min | 4b for analysts, 9b for synth |
 | Fully optimized | 5-8 min | Smaller prompts, skip unused agents |
 
 ---
@@ -137,7 +137,7 @@ Based on runtime profiling, these changes are critical:
 {
   "quick_thinker": {
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "qwen3:4b",
     "num_ctx": 8192,
     "num_predict": 4096,
     "think": false,
@@ -145,7 +145,7 @@ Based on runtime profiling, these changes are critical:
   },
   "deep_thinker": {
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "qwen3.5:9b",
     "num_ctx": 16384,
     "num_predict": 8192,
     "think": false,
@@ -164,18 +164,18 @@ Based on runtime profiling, these changes are critical:
 
 ## Ollama Models for M4 16GB
 
-Minimum required (disk: ~5.5GB):
+Minimum required (disk: ~3.0GB):
 ```bash
-ollama pull qwen3:8b           # 5.2 GB
-ollama pull nomic-embed-text    # 274 MB
+ollama pull qwen3:4b                  # 2.7 GB
+ollama pull nomic-embed-text-v2-moe   # 274 MB
 ```
 
-Full recommended (disk: ~12.7GB):
+Full recommended (disk: ~9.6GB):
 ```bash
-ollama pull qwen3:8b           # 5.2 GB
-ollama pull qwen3-vl:8b        # 6.1 GB  (only if image analysis needed)
-ollama pull nomic-embed-text    # 274 MB
+ollama pull qwen3:4b                  # 2.7 GB
+ollama pull qwen3.5:9b                # 6.6 GB  (for deep analysis + VLM)
+ollama pull nomic-embed-text-v2-moe   # 274 MB
 ```
 
-Note: `qwen3:30b-a3b` and `deepseek-r1:14b` are NOT recommended for 16GB.
-They cause severe memory pressure and model swapping overhead.
+Note: `gemma4:26b` is NOT recommended for 16GB.
+It causes severe memory pressure and model swapping overhead.

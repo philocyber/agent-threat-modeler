@@ -53,7 +53,7 @@ flowchart TD
 | `build_messages(system_prompt, human_prompt)` | Construye `[SystemMessage, HumanMessage]` |
 | `_invoke_tools_into_prompt(tools, human_prompt, agent_name)` | Fallback para modelos sin tool-calling: pre-invoca RAG tools y embebe resultados en el prompt |
 | `_llm_invoke_with_retry(llm, messages, prefix)` | Retry con backoff exponencial (3 intentos, 2-30s) vía `tenacity` |
-| `_strip_think_tags(text)` | Strip `<think>...</think>` de modelos reasoning (Qwen3, DeepSeek-R1) |
+| `_strip_think_tags(text)` | Strip `<think>...</think>` de modelos con modo reasoning (Qwen3.5, DeepSeek-R1) |
 | `_self_reflect(llm, original_output, system_prompt, agent_name)` | Ciclo critique → revise para mejorar calidad |
 | `extract_json_from_response(text)` | Extracción multi-estrategia de JSON: code blocks → full text → balanced brackets → common fixes |
 | `parse_structured_response(text, model, many)` | Validación Pydantic con fallback chain |
@@ -144,10 +144,10 @@ Al final, `_generate_mermaid_dfd()` genera un diagrama de flujo de datos en Merm
 
 ## 2. STRIDE Analyst (Fase II)
 
-> **Archivo**: `stride_analyst.py` · **152 líneas** · **LLM**: stride_json (DeepSeek-R1:14b)
+> **Archivo**: `stride_analyst.py` · **152 líneas** · **LLM**: stride_json (Qwen3.5:9b)
 
 ### Rol
-Analiza cada elemento del sistema aplicando las 6 categorías STRIDE. Usa DeepSeek-R1 para producir **Chain-of-Thought visible** como audit trail.
+Analiza cada elemento del sistema aplicando las 6 categorías STRIDE. Produce un análisis estructurado con razonamiento detallado.
 
 ### Input → Output
 
@@ -188,7 +188,7 @@ Analiza cada elemento del sistema aplicando las 6 categorías STRIDE. Usa DeepSe
 
 ## 3. PASTA Analyst (Fase II)
 
-> **Archivo**: `pasta_analyst.py` · **142 líneas** · **LLM**: quick_json (Qwen3:8b)
+> **Archivo**: `pasta_analyst.py` · **142 líneas** · **LLM**: quick_json (Qwen3.5:4b)
 
 ### Rol
 Analiza desde la perspectiva del atacante con foco en riesgo de negocio. Produce **narrativas de ataque** (attack stories).
@@ -387,10 +387,10 @@ Cada amenaza incluye:
 
 ## 7-8. Red Team y Blue Team Debaters (Fase III)
 
-> **Archivo**: `debate.py` · **475 líneas** · **LLM**: stride (DeepSeek-R1:14b, free-text CoT)
+> **Archivo**: `debate.py` · **475 líneas** · **LLM**: stride (Qwen3.5:9b, free-text)
 
 ### Rol
-Debate adversarial de N rondas donde el Red Team ataca y el Blue Team defiende. Usan DeepSeek-R1 para **Chain-of-Thought visible** que enriquece el análisis.
+Debate adversarial de N rondas donde el Red Team ataca y el Blue Team defiende.
 
 ### Red Team — System Prompt (extracto)
 
@@ -448,10 +448,10 @@ El Red Team termina su argumento con una de estas señales:
 
 ## 9. Threat Synthesizer (Fase IV)
 
-> **Archivo**: `threat_synthesizer.py` · **832 líneas** · **LLM**: deep_json (Qwen3:30b-a3b MoE)
+> **Archivo**: `threat_synthesizer.py` · **832 líneas** · **LLM**: deep_json (Qwen3.5:27b)
 
 ### Rol
-El agente más **crítico** del pipeline. Consolida TODAS las amenazas de todas las metodologías + debate en un threat model unificado. Usa el Deep Thinker (30B MoE) para manejar el contexto masivo (15-30K tokens).
+El agente más **crítico** del pipeline. Consolida TODAS las amenazas de todas las metodologías + debate en un threat model unificado. Usa el Deep Thinker (Qwen3.5:27b) para manejar el contexto masivo (15-30K tokens).
 
 ### Input → Output
 

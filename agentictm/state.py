@@ -114,6 +114,9 @@ class ThreatModelState(TypedDict, total=False):
     threats_final: list[Threat]
     executive_summary: str
 
+    # ── Localized debate (non-append, set by output_localizer) ──
+    debate_history_localized: list[dict[str, Any]]
+
     # ── Fase IV — Output ──
     csv_output: str
     report_output: str

@@ -1,16 +1,31 @@
 const path = require('path');
+const { execSync } = require('child_process');
+const fs = require('fs');
 
 module.exports = {
+  outDir: path.resolve(__dirname, 'dist'),
+  hooks: {
+    preMake: async () => {
+      // Kill any running AgenticTM instances to release file locks
+      if (process.platform === 'win32') {
+        try { execSync('taskkill /IM agentictm.exe /F /T 2>nul', { stdio: 'ignore' }); } catch {}
+      }
+      // Clean old squirrel output to avoid EBUSY locks
+      const squirrelDir = path.resolve(__dirname, 'dist', 'make', 'squirrel.windows');
+      try { fs.rmSync(squirrelDir, { recursive: true, force: true }); } catch {}
+    },
+  },
   packagerConfig: {
     name: 'AgenticTM',
     executableName: 'agentictm',
     asar: false,
-    icon: path.resolve(__dirname, 'electron', 'icons', 'logo'),
+    icon: path.resolve(__dirname, 'electron', 'icons', 'icon'),
     extraResource: [
       path.resolve(__dirname, 'agentictm'),
       path.resolve(__dirname, 'run.py'),
       path.resolve(__dirname, 'cli.py'),
       path.resolve(__dirname, 'main.py'),
+      path.resolve(__dirname, 'logo-philocyber.png'),
       path.resolve(__dirname, 'requirements.txt'),
       path.resolve(__dirname, 'pyproject.toml'),
       path.resolve(__dirname, 'knowledge_base'),
@@ -20,6 +35,8 @@ module.exports = {
       /^\/\.git/,
       /^\/\.github/,
       /^\/\.cursor/,
+      /^\/out/,
+      /^\/dist/,
       /^\/output/,
       /^\/data/,
       /^\/docs/,

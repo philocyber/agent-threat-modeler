@@ -30,9 +30,76 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_THREAT_LIST_KEYS = [
+    "threat_assessments",
+    "identified_threats",
+    "threats",
+    "threat_analysis",
+    "threat_model",
+    "assessments",
+    "findings",
+    "red_team_assessment",
+    "blue_team_assessment",
+    "analysis",
+    "results",
+    "vulnerabilities",
+]
+
+
+def _extract_debate_threats(response: str, team: str, round_num: int) -> list:
+    """Extract threat assessments from debate response with flexible key matching."""
+    parsed = extract_json_from_response(response)
+    if parsed is None:
+        logger.info("[%s] Round %d: no JSON parsed from response", team, round_num)
+        return []
+
+    if isinstance(parsed, list):
+        logger.info("[%s] Round %d: %d structured assessments extracted (top-level list)", team, round_num, len(parsed))
+        return parsed
+
+    _THREAT_ITEM_KEYS = {"id", "title", "description", "threat", "severity",
+                         "likelihood", "impact", "mitigation", "action", "verdict"}
+
+    def _looks_like_threats(lst):
+        """Heuristic: a list of threat dicts should have threat-like keys."""
+        if not lst or not isinstance(lst[0], dict):
+            return False
+        sample_keys = set(lst[0].keys())
+        return bool(sample_keys & _THREAT_ITEM_KEYS)
+
+    def _find_threat_list(obj, depth=0, path=""):
+        """Recursively search for a list of threat dicts up to 4 levels deep."""
+        if depth > 4:
+            return None, ""
+        if isinstance(obj, list) and obj and isinstance(obj[0], dict) and _looks_like_threats(obj):
+            return obj, path
+        if isinstance(obj, dict):
+            for key in _THREAT_LIST_KEYS:
+                val = obj.get(key)
+                if val is not None:
+                    result, rpath = _find_threat_list(val, depth + 1, f"{path}.{key}" if path else key)
+                    if result is not None:
+                        return result, rpath
+            for key, val in obj.items():
+                if key not in _THREAT_LIST_KEYS and isinstance(val, (dict, list)):
+                    result, rpath = _find_threat_list(val, depth + 1, f"{path}.{key}" if path else key)
+                    if result is not None:
+                        return result, rpath
+        return None, ""
+
+    if isinstance(parsed, dict):
+        found, keypath = _find_threat_list(parsed)
+        if found:
+            logger.info("[%s] Round %d: %d structured assessments extracted (path='%s')", team, round_num, len(found), keypath)
+            return found
+
+    logger.info("[%s] Round %d: 0 structured assessments extracted (no matching key found in: %s)",
+                team, round_num, list(parsed.keys()) if isinstance(parsed, dict) else type(parsed).__name__)
+    return []
+
 
 # ────────────────────────────────────────────────────────────────────
-# Shared context builder — gives BOTH teams full pipeline state
+# Shared context builder -- gives BOTH teams full pipeline state
 # ────────────────────────────────────────────────────────────────────
 
 def _build_full_context(state: ThreatModelState) -> str:
@@ -64,7 +131,7 @@ def _build_full_context(state: ThreatModelState) -> str:
     flow_text = ""
     for f in data_flows[:60]:
         if isinstance(f, dict):
-            flow_text += f"  - {f.get('source', '?')} → {f.get('destination', '?')}"
+            flow_text += f"  - {f.get('source', '?')} -> {f.get('destination', '?')}"
             proto = f.get("protocol", "")
             if proto:
                 flow_text += f" [{proto}]"
@@ -202,11 +269,11 @@ def _build_debate_history_text(state: ThreatModelState) -> str:
                 if side == "red":
                     action = ta.get("action", "?")
                     reasoning = ta.get("reasoning", "")[:400]
-                    history_text += f"  - {threat_id}: {action} — {reasoning}\n"
+                    history_text += f"  - {threat_id}: {action} -- {reasoning}\n"
                 else:
                     verdict = ta.get("verdict", "?")
                     reasoning = ta.get("reasoning", ta.get("mitigation", ""))[:400]
-                    history_text += f"  - {threat_id}: {verdict} — {reasoning}\n"
+                    history_text += f"  - {threat_id}: {verdict} -- {reasoning}\n"
 
     return history_text
 
@@ -327,15 +394,7 @@ def run_red_team(
 
     logger.info("[Red Team] Round %d LLM response (%d chars):\n%s", current_round, len(response), response)
 
-    # Extract structured threat assessments from JSON block
-    threat_assessments = []
-    parsed = extract_json_from_response(response)
-    if isinstance(parsed, dict):
-        threat_assessments = parsed.get("threat_assessments", [])
-    elif isinstance(parsed, list):
-        threat_assessments = parsed
-
-    logger.info("[Red Team] Round %d: %d structured assessments extracted", current_round, len(threat_assessments))
+    threat_assessments = _extract_debate_threats(response, "Red Team", current_round)
 
     entry = DebateEntry(
         round=current_round,
@@ -469,15 +528,7 @@ def run_blue_team(
 
     logger.info("[Blue Team] Round %d LLM response (%d chars):\n%s", current_round, len(response), response)
 
-    # Extract structured verdicts from JSON block
-    threat_assessments = []
-    parsed = extract_json_from_response(response)
-    if isinstance(parsed, dict):
-        threat_assessments = parsed.get("threat_assessments", [])
-    elif isinstance(parsed, list):
-        threat_assessments = parsed
-
-    logger.info("[Blue Team] Round %d: %d structured verdicts extracted", current_round, len(threat_assessments))
+    threat_assessments = _extract_debate_threats(response, "Blue Team", current_round)
 
     entry = DebateEntry(
         round=current_round,

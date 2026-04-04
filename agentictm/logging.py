@@ -136,6 +136,18 @@ class HumanReadableFormatter(logging.Formatter):
         )
 
 
+class _AgenticTMDuplicateFilter(logging.Filter):
+    """Suppress ``agentictm.*`` records on the root logger.
+
+    When uvicorn (or any other library) adds a handler to the root logger
+    those records would be emitted twice — once by our ``agentictm`` handler
+    and once by the root handler.  This filter blocks the duplicate.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.name.startswith("agentictm")
+
+
 def configure_logging(
     *,
     json_output: bool = False,
@@ -153,7 +165,23 @@ def configure_logging(
     # Remove existing handlers to avoid duplicates on reload
     root_logger.handlers.clear()
 
-    handler = logging.StreamHandler()
+    import sys
+    import io
+
+    stream = sys.stderr
+    # On Windows the default console encoding (cp1252 / cp437) cannot render
+    # Unicode symbols that agents commonly log (checkmarks, arrows, etc.).
+    # Wrap the stream so encoding errors are replaced instead of crashing.
+    if hasattr(stream, "encoding") and stream.encoding:
+        try:
+            "✓→•—".encode(stream.encoding)
+        except (UnicodeEncodeError, LookupError):
+            stream = io.TextIOWrapper(
+                stream.buffer, encoding=stream.encoding, errors="replace",
+                line_buffering=True,
+            )
+
+    handler = logging.StreamHandler(stream)
     if json_output:
         handler.setFormatter(StructuredFormatter())
     else:
@@ -163,8 +191,15 @@ def configure_logging(
     root_logger.addHandler(handler)
     root_logger.setLevel(level)
 
-    # Don't propagate to root logger (avoids duplicate output)
+    # Don't propagate to root logger (avoids duplicate output from
+    # uvicorn's default handler picking up agentictm.* records)
     root_logger.propagate = False
+
+    # Silence the root Python logger's default handler for our namespace
+    # to prevent duplicate lines when uvicorn adds its own StreamHandler.
+    for h in logging.root.handlers[:]:
+        if isinstance(h, logging.StreamHandler) and h.stream in (sys.stdout, sys.stderr):
+            h.addFilter(_AgenticTMDuplicateFilter())
 
 
 class PipelineFileHandler(logging.Handler):

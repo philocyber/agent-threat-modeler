@@ -11,16 +11,16 @@ AgenticTM organiza sus modelos LLM en **4 tiers funcionales**, cada uno optimiza
 ```mermaid
 graph LR
     subgraph "Tier 1 — Quick"
-        Q["qwen3:8b<br/>~5 GB VRAM<br/>Rápido, JSON"]
+        Q["qwen3:4b<br/>~2.7 GB VRAM<br/>Rápido, JSON"]
     end
     subgraph "Tier 2 — Deep"
-        D["qwen3:30b-a3b<br/>~8 GB VRAM (MoE)<br/>Largo contexto"]
+        D["gemma4:26b<br/>~10 GB VRAM<br/>MoE, largo contexto"]
     end
-    subgraph "Tier 3 — Stride/CoT"
-        S["deepseek-r1:14b<br/>~9 GB VRAM<br/>Chain-of-Thought"]
+    subgraph "Tier 3 — Stride"
+        S["qwen3.5:9b<br/>~6.6 GB VRAM<br/>Análisis estructurado"]
     end
     subgraph "Tier 4 — VLM"
-        V["qwen3-vl:8b<br/>~5 GB VRAM<br/>Vision"]
+        V["qwen3.5:9b<br/>~6.6 GB VRAM<br/>Multimodal nativo"]
     end
 
     Q -->|"Analistas, Validator,<br/>Localizer"| PIPELINE["Pipeline"]
@@ -38,27 +38,20 @@ graph LR
 
 | Tier | Config Key | Modelo Default | Parámetros | VRAM | Temperatura | Propósito |
 |------|-----------|----------------|------------|------|-------------|-----------|
-| **Quick** | `quick_thinker` | `qwen3:8b` | 8B densas | ~5 GB | 0.3 | Triage rápido, JSON estructurado |
-| **Deep** | `deep_thinker` | `qwen3:30b-a3b` | 30B MoE (3.3B activos) | ~8 GB | 0.2 | Síntesis compleja, contexto largo (15-30K tokens) |
-| **Stride/CoT** | `stride_thinker` | `deepseek-r1:14b` | 14B densas | ~9 GB | 0.3 | Chain-of-Thought visible, audit trail |
-| **VLM** | `vlm` | `qwen3-vl:8b` | 8B + vision encoder | ~5 GB | 0.1 | Análisis de diagramas e imágenes |
+| **Quick** | `quick_thinker` | `qwen3:4b` | 4B | ~2.7 GB | 0.3 | Triage rápido, JSON estructurado |
+| **Deep** | `deep_thinker` | `gemma4:26b` | 26B (MoE) | ~10 GB | 0.2 | Síntesis compleja, contexto largo (15-30K tokens) |
+| **Stride** | `stride_thinker` | `qwen3.5:9b` | 9B | ~6.6 GB | 0.3 | Análisis STRIDE estructurado, debate |
+| **VLM** | `vlm` | `qwen3.5:9b` | 9B + visión nativa | ~6.6 GB | 0.1 | Análisis de diagramas e imágenes |
 
-### ¿Por Qué Qwen3:30b-a3b para Deep?
+### ¿Por Qué Esta Combinación?
 
-El modelo `qwen3:30b-a3b` usa **Mixture of Experts (MoE)**: tiene 30B de parámetros totales pero solo activa 3.3B en cada forward pass. Esto le da:
-- **Capacidad** comparable a un modelo de ~30B (amplia knowledge base)
-- **Velocidad** comparable a un modelo de ~4B (solo 3.3B activos)
-- **VRAM** de ~8 GB (carga todo pero solo computa una fracción)
+El stack combina **Qwen3** (quick), **Qwen3.5** (stride/VLM) y **Gemma4** (deep):
+- **Qwen3:4b** — rápido y ligero (~2.7 GB) para tareas de triage y JSON estructurado
+- **Qwen3.5:9b** — multimodal nativo (texto + imágenes), contexto de 256K, ideal para STRIDE/debate/VLM
+- **Gemma4:26b** — MoE con 3.8B params activos, 2.5x más rápido que modelos densos equivalentes, contexto 128-256K, ideal para síntesis profunda
+- **Modo thinking configurable** — soporte nativo de `/think` y `/nothink` (deshabilitado por defecto para velocidad)
 
-Es ideal para el Synthesizer, que recibe 15-30K tokens de contexto de 5 analistas + debate.
-
-### ¿Por Qué DeepSeek-R1 para STRIDE y Debate?
-
-DeepSeek-R1 es un modelo **always-on Chain-of-Thought**: genera su razonamiento de forma nativa (visible en tags `<think>...</think>`). Esto proporciona:
-- **Audit trail** para STRIDE — se puede ver cómo el modelo razonó cada categoría
-- **Transparencia en el debate** — el CoT del Red/Blue Team muestra la lógica detrás de escalaciones y disputas
-
-`_strip_think_tags()` en `base.py` limpia estos tags del output final.
+`_strip_think_tags()` en `base.py` limpia tags `<think>...</think>` del output cuando se usan modelos con modo reasoning.
 
 ---
 
@@ -136,7 +129,7 @@ pip install ".[cloud]"
 {
   "quick_thinker": {
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "qwen3:4b",
     "base_url": "http://localhost:11434"
   },
   "deep_thinker": {
@@ -146,7 +139,7 @@ pip install ".[cloud]"
   },
   "stride_thinker": {
     "provider": "ollama",
-    "model": "deepseek-r1:14b",
+    "model": "qwen3.5:9b",
     "base_url": "http://localhost:11434"
   },
   "vlm": {
@@ -167,13 +160,12 @@ En este ejemplo, los analistas rápidos corren local (Ollama), el Synthesizer us
 
 ```bash
 # Requeridos
-ollama pull qwen3:8b           # Quick Thinker — ~4.9 GB download
-ollama pull qwen3:30b-a3b      # Deep Thinker — ~17.7 GB download
-ollama pull deepseek-r1:14b    # Stride/CoT    — ~9.0 GB download
-ollama pull qwen3-vl:8b        # Vision LLM    — ~5.2 GB download
-ollama pull nomic-embed-text   # Embeddings    — ~274 MB download
+ollama pull qwen3:4b                  # Quick Thinker — ~2.7 GB download
+ollama pull qwen3.5:9b                # Stride/VLM    — ~6.6 GB download
+ollama pull gemma4:26b                # Deep Thinker  — ~10 GB download (MoE)
+ollama pull nomic-embed-text-v2-moe   # Embeddings    — ~274 MB download (8K, multilingual)
 
-# Total: ~37 GB de disco
+# Total: ~20 GB de disco
 ```
 
 ### Verificación
@@ -183,7 +175,7 @@ ollama pull nomic-embed-text   # Embeddings    — ~274 MB download
 ollama list
 
 # Probar un modelo
-ollama run qwen3:8b "Hola, ¿funciona?"
+ollama run qwen3:4b "Hola, ¿funciona?"
 ```
 
 ### Control de GPU
@@ -193,11 +185,11 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 ```json
 {
   "deep_thinker": {
-    "model": "qwen3:30b-a3b",
+    "model": "gemma4:26b",
     "num_gpu": -1    // -1 = todas las capas en GPU (100% VRAM)
   },
   "quick_thinker": {
-    "model": "qwen3:8b",
+    "model": "qwen3:4b",
     "num_gpu": null  // null = Ollama decide automáticamente
   }
 }
@@ -218,21 +210,21 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 
 | VRAM | Configuración Recomendada |
 |------|---------------------------|
-| **8 GB** | `quick_thinker` = qwen3:8b, `deep_thinker` = qwen3:8b (sin diferenciación real), `max_parallel_analysts` = 1, `analyst_execution_mode` = cascade |
-| **16 GB** | `quick_thinker` = qwen3:8b, `deep_thinker` = qwen3:30b-a3b, `max_parallel_analysts` = 2, `analyst_execution_mode` = hybrid |
+| **8 GB** | `quick_thinker` = qwen3:4b, `deep_thinker` = qwen3:4b (sin diferenciación real), `max_parallel_analysts` = 1, `analyst_execution_mode` = cascade |
+| **16 GB** | `quick_thinker` = qwen3:4b, `deep_thinker` = gemma4:26b, `stride_thinker` = qwen3.5:9b, `max_parallel_analysts` = 2, `analyst_execution_mode` = hybrid |
 | **24 GB** | Mismo que 16 GB pero con `max_parallel_analysts` = 3 |
-| **32+ GB** | Full parallel, `max_parallel_analysts` = 5 |
+| **32+ GB** | Full parallel con todos los modelos diferenciados, `max_parallel_analysts` = 5 |
 
 ### Consumo Estimado por Fase
 
 | Fase | Modelos Activos | VRAM Pico (hybrid, max=2) |
 |------|----------------|---------------------------|
-| I | quick_json + vlm (si hay imágenes) | ~10 GB |
-| II | 2× quick_json (throttled) | ~10 GB |
-| III | stride | ~9 GB |
-| II.5 | deep_json | ~8 GB |
-| IV | deep_json → quick_json | ~8 GB → ~5 GB |
-| V | quick_json (localizer) | ~5 GB |
+| I | quick_json + vlm (si hay imágenes) | ~9 GB |
+| II | 2× quick_json (throttled) | ~5.4 GB |
+| III | stride | ~6.6 GB |
+| II.5 | deep_json | ~10 GB |
+| IV | deep_json → quick_json | ~10 GB → ~2.7 GB |
+| V | quick_json (localizer) | ~2.7 GB |
 
 > **Nota**: Ollama gestiona la carga/descarga de modelos automáticamente. Cuando un modelo no se usa, Ollama lo puede descargar de VRAM para hacer espacio.
 
@@ -241,7 +233,7 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 | Hardware | Tiempo típico (sistema mediano) | Config |
 |----------|-------------------------------|--------|
 | RTX 4090 (24 GB) | 15-25 min | hybrid, max=2, todos los modelos |
-| RTX 3080 (10 GB) | 25-40 min | hybrid, max=1, quick=deep=qwen3:8b |
+| RTX 3080 (10 GB) | 25-40 min | hybrid, max=1, quick=stride=qwen3:4b |
 | Apple M2 Ultra (64 GB unified) | 10-20 min | hybrid, max=3, todos los modelos |
 | CPU only (32 GB RAM) | 60-120 min | cascade, quick=deep=qwen3:4b |
 

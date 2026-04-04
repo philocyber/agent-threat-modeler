@@ -373,19 +373,19 @@ Esto significa que si un analista individual falla (e.g., timeout de Ollama), el
 
 | Nodo | Variable LLM | Tier | Modelo Default | Justificación |
 |------|-------------|------|----------------|---------------|
-| Architecture Parser | `quick_json` | Quick JSON | qwen3:8b | Parsing rápido de arquitectura |
-| Architecture Parser (imágenes) | `vlm` | VLM | qwen3-vl:8b | Vision para diagramas |
-| STRIDE Analyst | `stride_json` | Stride JSON | deepseek-r1:14b | CoT audit trail |
-| PASTA Analyst | `quick_json` | Quick JSON | qwen3:8b | Narrativas de ataque rápidas |
-| Attack Tree (initial) | `quick_json` | Quick JSON | qwen3:8b | Árboles iniciales |
-| MAESTRO Analyst | `quick_json` | Quick JSON | qwen3:8b | Análisis MAESTRO |
-| AI Threat Analyst | `quick_json` | Quick JSON | qwen3:8b | Análisis AI/Agéntico |
-| Red Team | `stride` | Stride (free-text) | deepseek-r1:14b | CoT visible en debate |
-| Blue Team | `stride` | Stride (free-text) | deepseek-r1:14b | CoT visible en debate |
-| Attack Tree (enriched) | `deep_json` | Deep JSON | qwen3:30b-a3b | 2da pasada con contexto completo |
-| Threat Synthesizer | `deep_json` | Deep JSON | qwen3:30b-a3b | Síntesis de 15+ amenazas |
-| DREAD Validator | `quick_json` | Quick JSON | qwen3:8b | Scoring rápido |
-| Output Localizer | `quick_json` | Quick JSON | qwen3:8b | Traducción rápida |
+| Architecture Parser | `quick_json` | Quick JSON | qwen3:4b | Parsing rápido de arquitectura |
+| Architecture Parser (imágenes) | `vlm` | VLM | qwen3.5:9b | Multimodal nativo (texto + imágenes) |
+| STRIDE Analyst | `stride_json` | Stride JSON | qwen3.5:9b | Análisis STRIDE estructurado |
+| PASTA Analyst | `quick_json` | Quick JSON | qwen3:4b | Narrativas de ataque rápidas |
+| Attack Tree (initial) | `quick_json` | Quick JSON | qwen3:4b | Árboles iniciales |
+| MAESTRO Analyst | `quick_json` | Quick JSON | qwen3:4b | Análisis MAESTRO |
+| AI Threat Analyst | `quick_json` | Quick JSON | qwen3:4b | Análisis AI/Agéntico |
+| Red Team | `stride` | Stride (free-text) | qwen3.5:9b | Debate adversarial |
+| Blue Team | `stride` | Stride (free-text) | qwen3.5:9b | Debate adversarial |
+| Attack Tree (enriched) | `deep_json` | Deep JSON | gemma4:26b | 2da pasada con contexto completo |
+| Threat Synthesizer | `deep_json` | Deep JSON | gemma4:26b | Síntesis de 15+ amenazas |
+| DREAD Validator | `quick_json` | Quick JSON | qwen3:4b | Scoring rápido |
+| Output Localizer | `quick_json` | Quick JSON | qwen3:4b | Traducción rápida |
 | Report Generator | *(ninguno)* | — | — | Código puro, sin LLM |
 
 ---

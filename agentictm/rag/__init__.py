@@ -75,7 +75,7 @@ class RAGStoreManager:
     def __init__(
         self,
         persist_dir: Path,
-        embedding_model: str = "nomic-embed-text",
+        embedding_model: str = "nomic-embed-text-v2-moe",
         embedding_provider: str = "ollama",
         base_url: str = "http://localhost:11434",
         tree_index_dir: Path | None = None,
@@ -105,13 +105,18 @@ class RAGStoreManager:
         # PageIndex trees
         self._tree_dir = Path(tree_index_dir) if tree_index_dir else Path("data/page_indices")
         self._trees: dict[str, DocumentTree] = {}
+        self._trees_loaded: bool = False
         self._tree_llm: Any | None = None  # set via set_tree_llm()
         self._load_trees()
 
     def _load_trees(self) -> None:
-        """Load all available PageIndex trees from disk."""
+        """Load all available PageIndex trees from disk (once)."""
+        if self._trees_loaded and self._trees:
+            logger.debug("PageIndex trees already cached (%d trees) -- skipping disk read", len(self._trees))
+            return
         if self._tree_dir.exists():
             self._trees = load_all_trees(self._tree_dir)
+            self._trees_loaded = True
             if self._trees:
                 logger.info(
                     "Loaded %d PageIndex trees: %s",
@@ -127,6 +132,7 @@ class RAGStoreManager:
 
     def reload_trees(self) -> None:
         """Reload tree indices from disk (after re-indexing)."""
+        self._trees_loaded = False  # force disk read
         self._load_trees()
 
     @property
@@ -283,8 +289,8 @@ class RAGStoreManager:
         parts = []
         for i, r in enumerate(results, 1):
             header = (
-                f"[📖 {r.doc_name} — {r.section_path}]\n"
-                f"Pages: {r.page_range[0] + 1}–{r.page_range[1] + 1}"
+                f"[[Doc] {r.doc_name} -- {r.section_path}]\n"
+                f"Pages: {r.page_range[0] + 1}-{r.page_range[1] + 1}"
             )
             if r.relevance_note:
                 header += f" | {r.relevance_note}"

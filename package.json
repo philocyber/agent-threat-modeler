@@ -1,7 +1,7 @@
 {
   "name": "agentictm",
   "productName": "AgenticTM",
-  "version": "0.3.2",
+  "version": "0.3.6",
   "description": "Multi-agent threat modeling platform with LangGraph orchestration and local LLM support",
   "main": "electron/main.js",
   "scripts": {

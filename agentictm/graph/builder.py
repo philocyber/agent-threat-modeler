@@ -187,25 +187,25 @@ def build_graph(
         if "pasta" not in _enabled_analysts:
             logger.info("[PASTA] Skipped (not in enabled_analysts)")
             return {}
-        return run_pasta_analyst(state, quick_json)
+        return run_pasta_analyst(state, stride_json)
 
     def _node_attack_tree(state: ThreatModelState) -> dict:
         if "attack_tree" not in _enabled_analysts:
             logger.info("[Attack Tree] Skipped (not in enabled_analysts)")
             return {}
-        return run_attack_tree_analyst(state, quick_json)
+        return run_attack_tree_analyst(state, stride_json)
 
     def _node_maestro(state: ThreatModelState) -> dict:
         if "maestro" not in _enabled_analysts:
             logger.info("[MAESTRO] Skipped (not in enabled_analysts)")
             return {}
-        return run_maestro_analyst(state, quick_json)
+        return run_maestro_analyst(state, stride_json)
 
     def _node_ai_threat(state: ThreatModelState) -> dict:
         if "ai_threat" not in _enabled_analysts:
             logger.info("[AI Threat] Skipped (not in enabled_analysts)")
             return {}
-        return run_ai_threat_analyst(state, quick_json)
+        return run_ai_threat_analyst(state, stride_json)
 
     def _node_red_team(state: ThreatModelState) -> dict:
         if _skip_debate:
@@ -223,7 +223,7 @@ def build_graph(
         if _skip_enriched:
             logger.info("[Attack Tree Enriched] Skipped (skip_enriched_attack_tree=True)")
             return {}
-        return run_attack_tree_enriched(state, quick_json)
+        return run_attack_tree_enriched(state, stride_json)
 
     def _node_synthesizer(state: ThreatModelState) -> dict:
         return run_threat_synthesizer(state, deep_json, config=config)
@@ -232,7 +232,7 @@ def build_graph(
         if _skip_dread:
             logger.info("[DREAD Validator] Skipped (skip_dread_validator=True)")
             return {}
-        return run_dread_validator(state, quick_json, config=config)
+        return run_dread_validator(state, stride_json, config=config)
 
     def _node_output_localizer(state: ThreatModelState) -> dict:
         if _skip_localizer:
@@ -268,12 +268,12 @@ def build_graph(
 
         def _wrapper(state: ThreatModelState) -> dict:
             logger.info(
-                "[%s] Waiting for analyst slot (active_slots≤%d)...",
+                "[%s] Waiting for analyst slot (active_slots<=%d)...",
                 name, max_concurrent,
             )
             _analyst_sem.acquire()
             try:
-                logger.info("[%s] Analyst slot acquired — starting", name)
+                logger.info("[%s] Analyst slot acquired -- starting", name)
                 return fn(state)
             finally:
                 _analyst_sem.release()
@@ -330,7 +330,7 @@ def build_graph(
         # to prevent an infinite loop where debate_round never increments.
         if not debate_history:
             logger.warning(
-                "[Debate] debate_history is empty — debate nodes failed or were skipped. "
+                "[Debate] debate_history is empty -- debate nodes failed or were skipped. "
                 "Exiting debate loop."
             )
             return "attack_tree_enriched"
@@ -342,7 +342,7 @@ def build_graph(
         if len(debate_history) < expected_entries - 2:
             logger.warning(
                 "[Debate] debate_history has %d entries but expected ~%d for round %d "
-                "— debate nodes are failing. Exiting.",
+                "-- debate nodes are failing. Exiting.",
                 len(debate_history), expected_entries, current_round,
             )
             return "attack_tree_enriched"
@@ -460,7 +460,7 @@ def build_graph(
         graph.add_edge("attack_tree_analyst", "maestro_analyst")
         graph.add_edge("maestro_analyst",     "ai_threat_analyst")
         graph.add_edge("ai_threat_analyst",   _fan_in_target)
-        logger.info("[Graph] Cascade edges: stride→pasta→attack_tree→maestro→ai→%s", _fan_in_target)
+        logger.info("[Graph] Cascade edges: stride->pasta->attack_tree->maestro->ai->%s", _fan_in_target)
     else:
         # Parallel: fan-out from architecture_parser to all analysts
         graph.add_conditional_edges(

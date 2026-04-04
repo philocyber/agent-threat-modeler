@@ -88,17 +88,35 @@ CONFIDENCE: Rate 0.0-1.0 how certain you are this AI threat applies to THIS spec
 def _has_ai_components(state: ThreatModelState) -> bool:
     """Detecta si el sistema tiene componentes de IA/ML/Agénticos.
 
-    Checks multiple sources: system_description, components, raw_input,
-    and methodology_reports (other analysts may have identified AI components).
+    Uses a two-tier keyword strategy to avoid false positives on non-AI
+    systems whose descriptions naturally contain words like "model", "agent",
+    or "prompt".
+
+    - **Strong indicators**: unambiguously AI (any single word-boundary match
+      is enough).
+    - **Ambiguous indicators**: common in non-AI contexts — require ≥3 distinct
+      matches before triggering.
+
+    The raw_input fallback (user text + uploads) only checks strong indicators
+    to avoid false positives from triage Q&A or generic architecture language.
     """
-    ai_keywords = {
-        "llm", "model", "ai", "ml", "gpt", "agent", "rag", "vector",
-        "embedding", "neural", "inference", "training", "prediction",
-        "langchain", "langgraph", "ollama", "openai", "anthropic",
-        "transformer", "bert", "chatbot", "nlp", "prompt",
+    import re as _re
+
+    _STRONG_AI_KEYWORDS = {
+        "llm", "gpt", "langchain", "langgraph", "ollama", "openai",
+        "anthropic", "neural", "embedding", "rag", "transformer", "bert",
+        "chatbot", "nlp", "pytorch", "tensorflow", "huggingface",
+        "fine-tun", "rlhf", "dpo", "sagemaker", "bedrock", "copilot",
+        "gemini", "claude", "crewai", "autogen", "agentic",
         "machine learning", "deep learning", "artificial intelligence",
-        "risk engine", "scoring model", "ml model", "model serving",
-        "feature ingestion", "adversarial", "generative",
+        "ml model", "model serving", "feature ingestion", "vector store",
+        "multi-agent", "multi_agent", "a2a", "agent2agent",
+        "mcp-get", "mcp_installer", "tool_registry",
+    }
+    _AMBIGUOUS_AI_KEYWORDS = {
+        "model", "ai", "ml", "agent", "prompt", "inference", "training",
+        "prediction", "adversarial", "generative", "scoring model",
+        "risk engine", "vector", "plugin", "orchestrat",
     }
 
     def _to_str(val: object) -> str:
@@ -110,26 +128,31 @@ def _has_ai_components(state: ThreatModelState) -> bool:
             return " ".join(str(i) for i in val)
         return str(val) if val else ""
 
-    text_to_check = (
+    def _wb_match(keyword: str, text: str) -> bool:
+        return bool(_re.search(r"\b" + _re.escape(keyword) + r"\b", text))
+
+    arch_text = (
         _to_str(state.get("system_description", "")).lower()
         + " "
         + json.dumps(state.get("components", []), ensure_ascii=False).lower()
     )
 
-    if any(kw in text_to_check for kw in ai_keywords):
+    if any(_wb_match(kw, arch_text) for kw in _STRONG_AI_KEYWORDS):
+        return True
+    ambiguous_hits = sum(1 for kw in _AMBIGUOUS_AI_KEYWORDS if _wb_match(kw, arch_text))
+    if ambiguous_hits >= 3:
         return True
 
-    # Fallback: also check raw_input (the original user text + attached docs)
     raw_input = _to_str(state.get("raw_input", "")).lower()
-    if any(kw in raw_input for kw in ai_keywords):
-        logger.info("[MAESTRO] AI keywords found in raw_input (not in parsed components)")
+    strong_in_raw = [kw for kw in _STRONG_AI_KEYWORDS if _wb_match(kw, raw_input)]
+    if strong_in_raw:
+        logger.info("[MAESTRO] Strong AI keywords found in raw_input: %s", strong_in_raw[:5])
         return True
 
-    # Fallback 2: check if other methodology analysts found AI components
     for report in state.get("methodology_reports", []):
         report_text = json.dumps(report, ensure_ascii=False).lower()
-        ai_in_report = sum(1 for kw in ai_keywords if kw in report_text)
-        if ai_in_report >= 3:  # at least 3 AI keywords in a single report
+        strong_in_report = sum(1 for kw in _STRONG_AI_KEYWORDS if _wb_match(kw, report_text))
+        if strong_in_report >= 2:
             logger.info("[MAESTRO] AI keywords found in %s methodology report", report.get("methodology", "?"))
             return True
 

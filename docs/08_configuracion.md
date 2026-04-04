@@ -14,41 +14,46 @@ El archivo `config.json` en la raíz del proyecto controla toda la configuració
 {
   "quick_thinker": {
     "provider": "ollama",
-    "model": "qwen3:8b",
+    "model": "qwen3:4b",
     "temperature": 0.3,
     "base_url": "http://localhost:11434",
     "api_key": null,
     "timeout": 300,
     "format": null,
     "num_gpu": null,
+    "num_ctx": null,
+    "num_predict": null,
+    "think": false,
     "vlm_image_timeout": 600
   },
   "deep_thinker": {
     "provider": "ollama",
-    "model": "qwen3:30b-a3b",
+    "model": "gemma4:26b",
     "temperature": 0.2,
     "base_url": "http://localhost:11434",
     "api_key": null,
     "timeout": 600,
-    "num_gpu": -1
+    "num_gpu": -1,
+    "think": false
   },
   "stride_thinker": {
     "provider": "ollama",
-    "model": "deepseek-r1:14b",
+    "model": "qwen3.5:9b",
     "temperature": 0.3,
     "base_url": "http://localhost:11434",
     "api_key": null,
     "timeout": 600,
-    "num_gpu": -1
+    "num_gpu": -1,
+    "think": false
   },
   "vlm": {
     "provider": "ollama",
-    "model": "qwen3-vl:8b",
+    "model": "qwen3.5:9b",
     "temperature": 0.1,
     "base_url": "http://localhost:11434",
     "api_key": null,
     "timeout": 600,
-    "vlm_image_timeout": 1200,
+    "vlm_image_timeout": 300,
     "num_gpu": -1
   },
   "rag": {
@@ -56,7 +61,7 @@ El archivo `config.json` en la raíz del proyecto controla toda la configuració
     "vector_store_path": "data/vector_stores",
     "page_index_path": "data/page_indices",
     "embedding_provider": "ollama",
-    "embedding_model": "nomic-embed-text",
+    "embedding_model": "nomic-embed-text-v2-moe",
     "chunk_size": 1000,
     "chunk_overlap": 200,
     "retrieval_top_k": 5,
@@ -109,14 +114,17 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 | Campo | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
 | `provider` | `str` | `"ollama"` | Provider LLM: `ollama`, `anthropic`, `google`, `openai`, `azure` |
-| `model` | `str` | Varía por tier | Nombre del modelo (e.g., `qwen3:8b`, `claude-sonnet-4-20250514`) |
+| `model` | `str` | Varía por tier | Nombre del modelo (e.g., `qwen3:4b`, `gemma4:26b`, `claude-sonnet-4-20250514`) |
 | `temperature` | `float` | 0.3 (quick/stride), 0.2 (deep), 0.1 (vlm) | Temperatura de sampling (0.0 = determinístico, 1.0 = creativo) |
 | `base_url` | `str` | `"http://localhost:11434"` | URL base del provider (Ollama, Azure) |
 | `api_key` | `str \| None` | `null` | API key para providers cloud |
 | `timeout` | `int` | 300 (quick) / 600 (deep/stride/vlm) | HTTP client timeout en segundos |
 | `format` | `str \| None` | `null` | `"json"` para forzar JSON output (usado internamente por LLMFactory) |
 | `num_gpu` | `int \| None` | `null` / `-1` | Capas en GPU: `null`=auto, `-1`=todas, `0`=CPU, `N`=N capas |
-| `vlm_image_timeout` | `int` | 600 / 1200 | Timeout per-image para VLM (imágenes grandes) |
+| `num_ctx` | `int \| None` | `null` | Tamaño de ventana de contexto (menor = menos VRAM para KV cache) |
+| `num_predict` | `int \| None` | `null` | Máximo tokens a generar (previene generación sin límite) |
+| `think` | `bool \| None` | `false` | Habilitar/deshabilitar modo thinking (None=default del modelo, False=/nothink) |
+| `vlm_image_timeout` | `int` | 600 / 300 | Timeout per-image para VLM (imágenes grandes) |
 
 ### `RAGConfig` — Sistema RAG
 
@@ -126,7 +134,7 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 | `vector_store_path` | `Path` | `data/vector_stores` | Directorio ChromaDB |
 | `page_index_path` | `Path` | `data/page_indices` | Directorio JSON tree indices |
 | `embedding_provider` | `str` | `"ollama"` | Provider de embeddings |
-| `embedding_model` | `str` | `"nomic-embed-text"` | Modelo de embeddings |
+| `embedding_model` | `str` | `"nomic-embed-text-v2-moe"` | Modelo de embeddings |
 | `chunk_size` | `int` | `1000` | Tamaño de chunks (caracteres) |
 | `chunk_overlap` | `int` | `200` | Overlap entre chunks |
 | `retrieval_top_k` | `int` | `5` | Resultados por query |
@@ -137,7 +145,7 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 
 | Campo | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
-| `max_debate_rounds` | `int` | `2` | Máximo rounds de debate (puede terminar antes por convergencia) |
+| `max_debate_rounds` | `int` | `4` | Máximo rounds de debate (puede terminar antes por convergencia) |
 | `max_validation_iterations` | `int` | `2` | Iteraciones de validación DREAD |
 | `enable_maestro` | `bool` | `true` | Habilita MAESTRO (solo se activa si el sistema tiene AI) |
 | `output_format` | `str` | `"both"` | Output: `"csv"`, `"markdown"`, `"both"` |
@@ -151,6 +159,11 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 | `threat_categories` | `list[str]` | `["auto"]` | Categorías de amenazas a activar |
 | `analyst_execution_mode` | `str` | `"hybrid"` | Modo ejecución: `"parallel"`, `"cascade"`, `"hybrid"` |
 | `max_parallel_analysts` | `int` | `2` | Máximo LLM calls simultáneas de analistas (1-5) |
+| `enabled_analysts` | `list[str]` | `["stride", "pasta", "attack_tree", "maestro", "ai_threat"]` | Analistas a ejecutar (los demás se convierten en pass-through) |
+| `skip_debate` | `bool` | `false` | Saltar debate Red/Blue Team completamente |
+| `skip_enriched_attack_tree` | `bool` | `false` | Saltar el paso de Attack Tree enriquecido post-debate |
+| `skip_dread_validator` | `bool` | `false` | Saltar validación/corrección de scores DREAD |
+| `skip_output_localizer` | `bool` | `false` | Saltar traducción de output (mantiene idioma original) |
 
 #### Categorías de Amenazas Disponibles
 
@@ -219,6 +232,8 @@ Las variables de entorno **tienen precedencia** sobre `config.json`:
 | `AGENTICTM_OUTPUT_DIR` | `output_dir` | Directorio de salida |
 | `AGENTICTM_MAX_INPUT_LENGTH` | `security.max_input_length` | Máximo chars de input |
 | `AGENTICTM_MAX_UPLOAD_MB` | `security.max_upload_size_mb` | Máximo MB de upload |
+| `AGENTICTM_DATA_DIR` | `rag.*`, `memory.*`, `output_dir` | Redirige todos los paths de datos (vector stores, page indices, memory, output) a un directorio centralizado — útil para apps empaquetadas |
+| `AGENTICTM_KB_DIR` | `rag.knowledge_base_path` | Ruta a la knowledge base (sobreescribe la default) |
 
 ### Ejemplo
 
@@ -352,10 +367,10 @@ Se ejecuta al iniciar el servidor o CLI. Retorna warnings (no fatales) y crea di
 
 ```
   ✓ Ollama connected at http://localhost:11434 (5 models available)
-    ✓ quick_thinker: qwen3:8b
-    ✓ deep_thinker: qwen3:30b-a3b
-    ✓ stride_thinker: qwen3:8b
-    ✗ vlm: qwen3-vl:8b NOT FOUND
+    ✓ quick_thinker: qwen3:4b
+    ✓ deep_thinker: gemma4:26b
+    ✓ stride_thinker: qwen3.5:9b
+    ✓ vlm: qwen3.5:9b
   ⚠ No API key configured — endpoints are unprotected
   ✓ 5 vector stores found
   ✓ 14 tree indices found
@@ -385,14 +400,14 @@ services:
 
 ## Configuraciones Recomendadas
 
-### Computadora Personal (16 GB VRAM)
+### Computadora Personal (16-32 GB RAM)
 
 ```json
 {
-  "quick_thinker": { "model": "qwen3:8b" },
-  "deep_thinker": { "model": "qwen3:30b-a3b", "num_gpu": -1 },
-  "stride_thinker": { "model": "qwen3:8b" },
-  "vlm": { "model": "qwen3-vl:8b" },
+  "quick_thinker": { "model": "qwen3:4b" },
+  "deep_thinker": { "model": "gemma4:26b", "num_gpu": -1 },
+  "stride_thinker": { "model": "qwen3.5:9b" },
+  "vlm": { "model": "qwen3.5:9b" },
   "pipeline": {
     "analyst_execution_mode": "hybrid",
     "max_parallel_analysts": 2,
@@ -401,14 +416,14 @@ services:
 }
 ```
 
-### Servidor GPU (32+ GB VRAM)
+### Servidor GPU (32+ GB RAM)
 
 ```json
 {
-  "quick_thinker": { "model": "qwen3:8b" },
-  "deep_thinker": { "model": "qwen3:30b-a3b", "num_gpu": -1 },
-  "stride_thinker": { "model": "deepseek-r1:14b", "num_gpu": -1 },
-  "vlm": { "model": "qwen3-vl:8b", "num_gpu": -1 },
+  "quick_thinker": { "model": "qwen3:4b" },
+  "deep_thinker": { "model": "gemma4:26b", "num_gpu": -1 },
+  "stride_thinker": { "model": "qwen3.5:9b", "num_gpu": -1 },
+  "vlm": { "model": "qwen3.5:9b", "num_gpu": -1 },
   "pipeline": {
     "analyst_execution_mode": "parallel",
     "max_parallel_analysts": 5,
@@ -421,9 +436,9 @@ services:
 
 ```json
 {
-  "quick_thinker": { "provider": "ollama", "model": "qwen3:8b" },
+  "quick_thinker": { "provider": "ollama", "model": "qwen3:4b" },
   "deep_thinker": { "provider": "anthropic", "model": "claude-sonnet-4-20250514", "api_key": "sk-ant-..." },
-  "stride_thinker": { "provider": "ollama", "model": "deepseek-r1:14b" },
+  "stride_thinker": { "provider": "ollama", "model": "qwen3.5:9b" },
   "vlm": { "provider": "google", "model": "gemini-2.0-flash", "api_key": "AIza..." },
   "pipeline": {
     "analyst_execution_mode": "parallel",
@@ -437,9 +452,9 @@ services:
 ```json
 {
   "quick_thinker": { "model": "qwen3:4b", "num_gpu": 0 },
-  "deep_thinker": { "model": "qwen3:8b", "num_gpu": 0 },
+  "deep_thinker": { "model": "qwen3:4b", "num_gpu": 0 },
   "stride_thinker": { "model": "qwen3:4b", "num_gpu": 0 },
-  "vlm": { "model": "qwen3-vl:4b", "num_gpu": 0 },
+  "vlm": { "model": "qwen3:4b", "num_gpu": 0 },
   "pipeline": {
     "analyst_execution_mode": "cascade",
     "max_parallel_analysts": 1,

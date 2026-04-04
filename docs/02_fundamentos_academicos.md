@@ -66,7 +66,7 @@ STRIDE es un modelo de clasificación de amenazas desarrollado por Loren Kohnfel
 
 ### Implementación en AgenticTM
 
-El **STRIDE Analyst** (`stride_analyst.py`) aplica **STRIDE-per-element**: examina cada componente, flujo de datos y boundary del sistema, y evalúa cuál de las 6 categorías aplica. Usa el tier `stride_json` (DeepSeek-R1:14b) para producir un **Chain-of-Thought audit trail** visible.
+El **STRIDE Analyst** (`stride_analyst.py`) aplica **STRIDE-per-element**: examina cada componente, flujo de datos y boundary del sistema, y evalúa cuál de las 6 categorías aplica. Usa el tier `stride_json` (Qwen3.5:9b por defecto) para producir un análisis estructurado con razonamiento detallado.
 
 ```python
 # Ejemplo de output del STRIDE Analyst

@@ -83,7 +83,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # ---- shutdown path ----
-    logger.info("[AgenticTM] Server shutting down — cleaning up")
+    logger.info("[AgenticTM] Server shutting down -- cleaning up")
 
     # Close persistent store
     await _store.close()
@@ -381,7 +381,7 @@ def _reload_results_from_disk():
             data["_analysis_id"] = aid
             candidate_slug = data.get("project_slug") or _build_project_slug(data, aid)
             if candidate_slug in _existing_slugs():
-                logger.debug("Skipping disk result %s — slug '%s' already loaded", result_file, candidate_slug)
+                logger.debug("Skipping disk result %s -- slug '%s' already loaded", result_file, candidate_slug)
                 continue
             _results[aid] = data
             loaded += 1
@@ -401,7 +401,7 @@ def _reload_results_from_disk():
         # Deduplicate by slug
         candidate_slug = _build_project_slug(legacy, aid)
         if candidate_slug in _existing_slugs():
-            logger.debug("Skipping legacy folder %s — slug '%s' already loaded", entry.name, candidate_slug)
+            logger.debug("Skipping legacy folder %s -- slug '%s' already loaded", entry.name, candidate_slug)
             continue
         _results[aid] = legacy
         loaded_legacy += 1
@@ -546,11 +546,12 @@ def _apply_cloud_overrides(config, cloud_providers: dict | None):
 # Ollama model resolution for Custom scan mode
 # ---------------------------------------------------------------------------
 
-# Known Ollama qwen3.5 model sizes (billion params → model tag)
+# Known Ollama model sizes (billion params -> model tag)
 _OLLAMA_MODEL_MAP: list[tuple[float, str]] = [
-    (4, "qwen3.5:4b"),
+    (4, "qwen3:4b"),
     (9, "qwen3.5:9b"),
     (14, "qwen3.5:14b"),
+    (26, "gemma4:26b"),
     (27, "qwen3.5:27b"),
     (32, "qwen3.5:32b"),
     (72, "qwen3.5:72b"),
@@ -688,12 +689,12 @@ async def get_scan_modes():
                 "id": "fast",
                 "label": "Fast",
                 "icon": "⚡",
-                "description": "qwen3.5:4b, solo STRIDE + Attack Tree, sin debate. Ideal para demos (~2 min).",
+                "description": "qwen3:4b, solo STRIDE + Attack Tree, sin debate. Ideal para demos (~2 min).",
             },
             {
                 "id": "deep",
                 "label": "Deep",
-                "icon": "🔍",
+                "icon": "search",
                 "description": "Parser y Synthesizer usan modelo 30B con razonamiento. Máxima calidad (~25 min).",
             },
             {
@@ -1556,7 +1557,7 @@ def _run_analysis_sync(
     if scan_mode == "fast":
         from agentictm.config import LLMConfig
         fast_llm = LLMConfig(
-            model="qwen3.5:4b",
+            model="qwen3:4b",
             temperature=0.3,
             timeout=120,
             num_ctx=16384,
@@ -1571,7 +1572,7 @@ def _run_analysis_sync(
         final_cfg.pipeline.skip_debate = True
         final_cfg.pipeline.skip_enriched_attack_tree = True
         max_debate_rounds = 0
-        logger.info("  Fast scan: qwen3.5:4b, stride+attack_tree only, no debate, VLM timeout=60s")
+        logger.info("  Fast scan: qwen3:4b, stride+attack_tree only, no debate, VLM timeout=60s")
     elif scan_mode == "custom" and custom_model_size is not None:
         from agentictm.config import LLMConfig
         custom_tag = _resolve_ollama_model(custom_model_size)
@@ -1845,16 +1846,40 @@ async def download_attachment(analysis_id: str, stored_name: str, _auth=Depends(
 
 @app.delete("/api/results/{analysis_id}", tags=["Results"], summary="Delete an analysis")
 async def delete_result(analysis_id: str, _auth=Depends(verify_api_key)):
-    """Delete an analysis and associated files on disk."""
-    result = _results.pop(analysis_id, None)
-    if not result:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    """Delete an analysis and associated files on disk.
 
-    # Remove from persistent store
+    Graceful: if the analysis is not in the in-memory cache (e.g. it was created
+    in a different session / Electron instance), we still purge it from the SQLite
+    store and any matching output directory, then return 200 so the client can
+    cleanly remove the entry from its local state.
+    """
+    result = _results.pop(analysis_id, None)
+
+    # Always try to purge from the persistent store regardless of memory state
     await _store.delete(analysis_id)
 
     removed_dir = None
-    output_dir = result.get("output_dir")
+    output_dir = result.get("output_dir") if result else None
+
+    # If not in memory, try to find the output dir by scanning the output directory
+    if not output_dir and _OUTPUT_DIR.exists():
+        for candidate in _OUTPUT_DIR.iterdir():
+            if not candidate.is_dir():
+                continue
+            rj = candidate / "result.json"
+            if rj.exists():
+                try:
+                    data = json.loads(rj.read_text(encoding="utf-8"))
+                    if data.get("_analysis_id") == analysis_id:
+                        output_dir = str(candidate)
+                        break
+                except Exception:
+                    pass
+            # Legacy folder whose ID matches
+            if _legacy_analysis_id(candidate) == analysis_id:
+                output_dir = str(candidate)
+                break
+
     if output_dir:
         out_path = Path(output_dir)
         try:
@@ -1865,6 +1890,11 @@ async def delete_result(analysis_id: str, _auth=Depends(verify_api_key)):
                 removed_dir = str(out_path)
         except Exception as e:
             logger.warning("Could not remove output dir %s: %s", out_path, e)
+
+    logger.info(
+        "[Delete] analysis_id=%s | was_in_memory=%s | removed_dir=%s",
+        analysis_id, result is not None, removed_dir,
+    )
 
     return {
         "status": "deleted",

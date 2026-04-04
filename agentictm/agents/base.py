@@ -218,7 +218,7 @@ def _self_reflect(
             return original_output
 
     except Exception as exc:
-        logger.warning("%sSelf-reflection FAILED: %s — keeping original output", prefix, exc)
+        logger.warning("%sSelf-reflection FAILED: %s -- keeping original output", prefix, exc)
         return original_output
 
 
@@ -444,7 +444,7 @@ def _maybe_truncate_local_response(llm: BaseChatModel, text: str, prefix: str = 
             compact = json.dumps(parsed, ensure_ascii=False, separators=(',', ':'))
             if len(compact) <= _MAX_LOCAL_RESPONSE_CHARS:
                 logger.info(
-                    "%sExtracted valid JSON and re-serialized: %d → %d chars",
+                    "%sExtracted valid JSON and re-serialized: %d -> %d chars",
                     prefix, len(text), len(compact),
                 )
                 return compact
@@ -507,7 +507,7 @@ def invoke_agent(
             f"Focus on the information provided above.]"
         )
         logger.warning(
-            "%sPrompt truncated for cloud API: %.1f KB → %d KB (model=%s, limit=%d chars)",
+            "%sPrompt truncated for cloud API: %.1f KB -> %d KB (model=%s, limit=%d chars)",
             prefix, original_kb, max_chars // 1024, model_name, max_chars,
         )
 
@@ -730,15 +730,30 @@ def invoke_agent(
 # ---------------------------------------------------------------------------
 
 def _fix_common_json_issues(s: str) -> str:
-    """Fix common LLM JSON generation issues."""
+    """Fix common LLM JSON generation issues.
+
+    Handles trailing commas, JS-style comments, unquoted keys, unquoted
+    simple-word values, missing commas between adjacent objects, and
+    ``key: value`` pairs where the value is an unquoted identifier (common
+    VLM output like ``id: CloudFront``).
+    """
     # Remove trailing commas before } or ]
     s = re.sub(r",\s*([}\]])", r"\1", s)
     # Remove JavaScript-style comments
     s = re.sub(r"//[^\n]*", "", s)
     # Remove C-style block comments
     s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
-    # Fix unquoted keys (simple cases)
+    # Fix unquoted keys (simple cases): {key: ... or ,key: ...
     s = re.sub(r"(?<=[{,])\s*(\w+)\s*:", r' "\1":', s)
+    # Fix unquoted string values: "key": SomeWord  ->  "key": "SomeWord"
+    # Only match single-word or dot-separated identifiers (e.g. CloudFront, S3.bucket)
+    s = re.sub(
+        r'(:\s*)([A-Za-z_][\w.]*)\s*([,}\]\n])',
+        lambda m: m.group(1) + '"' + m.group(2) + '"' + m.group(3),
+        s,
+    )
+    # Fix missing comma between adjacent objects: }{ -> },{
+    s = re.sub(r"\}\s*\{", "},{", s)
     return s
 
 
@@ -828,8 +843,8 @@ def extract_json_from_response(text: str | list) -> dict | list | None:
         logger.warning("Respuesta vacía del agente")
         return None
 
-    # Strip <think>...</think> blocks (qwen3 reasoning)
-    cleaned = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
+    # Strip <think>...</think> blocks (handles paired, orphaned closing, and orphaned opening tags)
+    cleaned = _strip_think_tags(text)
     if not cleaned:
         cleaned = text
 
@@ -958,15 +973,38 @@ def extract_threats_from_markdown(text: str, methodology: str = "Unknown") -> li
     threats = []
     threat_counter = 1
 
-    # Try to find numbered threat entries (### 1. Threat Name, ### TM-001, etc.)
-    sections = re.split(r"(?:^|\n)#{1,3}\s+(?:\d+\.?\s*|TM-\d+[:\s])", cleaned)
+    # Try to find numbered threat entries (### 1. Title, #### **1. Title, ### TM-001, etc.)
+    sections = re.split(r"(?:^|\n)#{1,6}\s+\*{0,2}\s*(?:\d+\.?\s*|TM-\d+[:\s])", cleaned)
 
-    # Also try splitting by numbered lists: "1. ", "2. ", etc.
+    # Also try splitting by numbered lists: "1. ", "2. ", "**1. " etc.
     if len(sections) <= 1:
-        sections = re.split(r"\n(?=\d+\.\s+\*\*)", cleaned)
+        sections = re.split(r"\n(?=\*{0,2}\d+\.\s+\*{0,2})", cleaned)
+
+    # Try splitting by PASTA/Attack Tree style headers:
+    # "### **Stage N:", "#### Goal X:", "#### Attack Tree N:", "**Path X:"
+    if len(sections) <= 1:
+        sections = re.split(
+            r"(?:^|\n)(?:#{1,6}\s+\*{0,2}\s*(?:Stage\s+\d+|Goal\s+[A-Z]|Attack\s+Tree\s+\d+|Path\s+[A-Z])[:\s]"
+            r"|\*{2}Path\s+[A-Z][:\s]"
+            r"|\*{2}Sub-Goal\s+[A-Z]\d+)",
+            cleaned,
+        )
+
+    # Last resort: split on any H3/H4 heading
+    if len(sections) <= 1:
+        sections = re.split(r"(?:^|\n)#{3,4}\s+", cleaned)
+
+    _NON_THREAT_PATTERNS = re.compile(
+        r"(?i)^(?:\*{0,2})\s*(?:evidence|conclusion|referencias|fuentes|references|mitigation\s+mapping"
+        r"|summary|resumen|contextual\s+analysis|recommended|bibliography|appendix|stage\s+[18])",
+    )
 
     for section in sections[1:] if len(sections) > 1 else []:
-        if len(section.strip()) < 20:
+        stripped = section.strip()
+        if len(stripped) < 40:
+            continue
+        first_line = stripped.split("\n", 1)[0].strip().lstrip("#* ")
+        if _NON_THREAT_PATTERNS.match(first_line):
             continue
 
         threat = _parse_markdown_threat_section(section, threat_counter, methodology)
@@ -1053,10 +1091,22 @@ def _parse_markdown_threat_section(
         else:
             fields["priority"] = "Low"
 
+    desc_lines = [l.strip() for l in lines if l.strip()
+                   and not re.match(r"^(?:\*\*)?(?:component|stride|damage|reproduc|exploit|affect|discover|dread|priority|impact|mitiga|control|risk|categor)", l.strip(), re.IGNORECASE)
+                   and not re.match(r"^```|^\|[\s:-]+\|$|^---$", l.strip())]
+    body = " ".join(desc_lines).strip()
+    body = re.sub(r"\*{1,2}([^*]+)\*{1,2}", r"\1", body)
+    body = re.sub(r"`([^`]+)`", r"\1", body)
+    body = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", body)
+    body = re.sub(r"\s{2,}", " ", body)
+    if title and body.startswith(title):
+        body = body[len(title):].strip().lstrip(".:- ")
+    description = f"{title}: {body}" if title and body else (body or title or full_text[:300])
+
     return {
         "id": f"TM-{index:03d}",
         "component": fields.get("component", ""),
-        "description": title or full_text[:200],
+        "description": description[:500],
         "methodology": methodology,
         "stride_category": fields.get("stride_category", ""),
         "attack_path": "",

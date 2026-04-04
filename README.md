@@ -30,7 +30,7 @@ Built and maintained by [PhiloCyber](https://philocyber.com).
 
 ## Features
 
-- **6-phase, 13-node analysis pipeline** -- architecture parsing, multi-methodology threat analysis, adversarial debate, synthesis, validation, and reporting
+- **6-phase, 14-node analysis pipeline** -- architecture parsing, multi-methodology threat analysis, adversarial debate, synthesis, validation, and reporting
 - **Multiple threat methodologies** -- STRIDE, PASTA, Attack Trees, MAESTRO (AI systems), and dedicated AI/ML threat analysis
 - **Adversarial Red Team / Blue Team debate** with automatic convergence detection
 - **DREAD scoring and validation** with asymmetric, realistic score distribution
@@ -46,6 +46,7 @@ Built and maintained by [PhiloCyber](https://philocyber.com).
 
 ```text
 Phase I     Architecture Parser (text + optional VLM for images)
+              └─ Arch Clarifier (conditional, if quality is low)
 Phase II    STRIDE | PASTA | Attack Tree | MAESTRO | AI Threat  (conditional)
 Phase III   Red Team <-> Blue Team (N rounds, convergence cutoff)
 Phase II.5  Attack Tree Enriched (post-debate)
@@ -103,24 +104,23 @@ curl http://localhost:11434/api/tags
 #### 2. Pull models
 
 ```bash
-# Chat model (Qwen 3.5 -- natively multimodal, handles text + images)
-ollama pull qwen3.5:4b       # ~3.4 GB, good for fast scans
-# or for deeper analysis:
-ollama pull qwen3.5:9b       # ~6.6 GB, recommended default
-ollama pull qwen3.5:27b      # ~17 GB, best quality (requires 32 GB+ RAM)
+# Chat models
+ollama pull qwen3:4b         # ~2.7 GB, Quick Thinker (fast scans)
+ollama pull qwen3.5:9b       # ~6.6 GB, Stride/VLM (multimodal, STRIDE/debate)
+ollama pull gemma4:26b       # ~10 GB, Deep Thinker (MoE, synthesis)
 
 # Embedding model for RAG (required)
-ollama pull nomic-embed-text
+ollama pull nomic-embed-text-v2-moe   # 8K context, multilingual MoE
 ```
 
 **Model selection by available RAM:**
 
-| RAM | Recommended model | Tag |
-|-----|-------------------|-----|
-| 8 GB | Qwen 3.5 4B | `qwen3.5:4b` |
-| 16 GB | Qwen 3.5 9B | `qwen3.5:9b` |
-| 32 GB | Qwen 3.5 27B | `qwen3.5:27b` |
-| 64 GB+ | Qwen 3.5 72B | `qwen3.5:72b` |
+| RAM | Recommended config | Models |
+|-----|-------------------|--------|
+| 8 GB | Single model for all tiers | `qwen3:4b` |
+| 16 GB | Quick + Stride/VLM | `qwen3:4b` + `qwen3.5:9b` |
+| 32 GB | Full differentiated stack | `qwen3:4b` + `qwen3.5:9b` + `gemma4:26b` |
+| 64 GB+ | Full stack, max parallelism | All models, `max_parallel_analysts: 5` |
 
 #### 3. Clone and install
 
@@ -130,7 +130,7 @@ cd agent-threat-modeler
 
 python -m venv .venv
 source .venv/bin/activate    # Linux/macOS
-# .venv\Scripts\activate     # Windows
+.venv\Scripts\activate     # Windows
 
 pip install -r requirements.txt
 ```
@@ -162,8 +162,8 @@ This starts both the Ollama service and the AgenticTM API. The UI is available a
 
 > **Note:** You still need to pull models inside the Ollama container:
 > ```bash
-> docker exec -it agent-threat-modeler-ollama-1 ollama pull qwen3.5:4b
-> docker exec -it agent-threat-modeler-ollama-1 ollama pull nomic-embed-text
+> docker exec -it agent-threat-modeler-ollama-1 ollama pull qwen3:4b
+> docker exec -it agent-threat-modeler-ollama-1 ollama pull nomic-embed-text-v2-moe
 > ```
 
 ---
@@ -205,6 +205,8 @@ All settings can be overridden via environment variables:
 | `AGENTICTM_MAX_INPUT_LENGTH` | Max characters for input text | `100000` |
 | `AGENTICTM_MAX_UPLOAD_MB` | Max upload file size in MB | `10` |
 | `AGENTICTM_LOG_JSON` | Enable JSON-formatted logging | `false` |
+| `AGENTICTM_HOST` | Server bind address | `127.0.0.1` |
+| `AGENTICTM_CORS_ORIGINS` | Comma-separated allowed CORS origins | none |
 
 ---
 
@@ -222,7 +224,7 @@ knowledge_base/
 │   └── plot4ai_deck.json      # PLOT4ai threat catalog
 ├── previous_threat_models/    # Your past threat model CSVs
 ├── risks_mitigations/         # Threat control catalogs (CSV)
-│   └── threats-secure-flag.csv
+│   └── threats.csv
 ```
 
 ### Adding your own documents
@@ -274,6 +276,12 @@ python cli.py analyze -n "My System" -i "REST API with PostgreSQL, Redis, and JW
 # Analyze from file
 python cli.py analyze -n "My System" -f architecture.md
 
+# With specific categories and output dir
+python cli.py analyze -n "AWS App" -f desc.md --categories aws,ai,web -o ./results
+
+# Fast mode (optimized prompts, fewer debate rounds)
+python cli.py analyze -n "My System" -f architecture.md --mode fast
+
 # Verbose output
 python cli.py analyze -n "My System" -f architecture.mmd -v
 ```
@@ -304,13 +312,12 @@ Each analysis produces artifacts in `output/<system_name>_<date>/`:
 
 | File | Content |
 |------|---------|
-| `result.json` | Complete structured results (threats, scores, reports) |
 | `threat_model.csv` | Threat matrix with STRIDE categories and DREAD scores |
 | `complete_report.md` | Full Markdown report including debate transcripts |
 | `dfd.mermaid` | Generated Data Flow Diagram |
 | `attachments/` | Uploaded input files |
 
-Results are also persisted in `data/results.db` for the web UI history.
+Results are also persisted in `data/results.db` for the web UI history. Full structured results (JSON) are available via the API at `GET /api/results/{id}`.
 
 ---
 
@@ -346,7 +353,10 @@ agentictm/
 ├── parsers/       # Mermaid and Draw.io input parsers
 ├── state.py       # ThreatModelState (shared TypedDict)
 ├── config.py      # Configuration loading and validation
-└── core.py        # Main orchestrator (AgenticTM class)
+├── core.py        # Main orchestrator (AgenticTM class)
+├── models.py      # UnifiedThreat and API response schemas
+├── diagnostics.py # System diagnostics (Ollama, models, vector stores)
+└── logging.py     # Structured logging setup
 
 electron/          # Electron desktop app shell
 docs/              # Detailed documentation (17 chapters)
@@ -368,7 +378,7 @@ make status    # shows Python, Ollama, models, and server status
 |---------|----------|
 | `Connection refused` when analyzing | Ollama is not running. Start it with `brew services start ollama` (macOS) or `ollama serve` (Linux). Verify with `curl http://localhost:11434/api/tags` |
 | `ollama: command not found` | Ollama is not installed. It's a system-level binary, not a pip package. See [Prerequisites](#1-prerequisites) |
-| `model not found` | The model hasn't been pulled. Run `ollama pull <model>` (e.g., `ollama pull qwen3.5:4b`) |
+| `model not found` | The model hasn't been pulled. Run `ollama pull <model>` (e.g., `ollama pull qwen3:4b`) |
 | Analysis is slow | Use `cascade` mode with a smaller model, or try `hybrid` with `max_parallel_analysts: 2` |
 | No RAG context in results | Run `python cli.py index` after adding documents to `knowledge_base/` |
 | Port 8000 already in use | Kill the existing process: `lsof -ti :8000 \| xargs kill -9`, or use `python run.py --port 8001` |
