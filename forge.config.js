@@ -5,13 +5,12 @@ module.exports = {
     name: 'AgenticTM',
     executableName: 'agentictm',
     asar: false,
-    icon: path.resolve(__dirname, 'electron', 'icons', 'icon'),
+    icon: path.resolve(__dirname, 'electron', 'icons', 'logo'),
     extraResource: [
       path.resolve(__dirname, 'agentictm'),
       path.resolve(__dirname, 'run.py'),
       path.resolve(__dirname, 'cli.py'),
       path.resolve(__dirname, 'main.py'),
-      path.resolve(__dirname, 'config.json'),
       path.resolve(__dirname, 'requirements.txt'),
       path.resolve(__dirname, 'pyproject.toml'),
       path.resolve(__dirname, 'knowledge_base'),
@@ -41,8 +40,6 @@ module.exports = {
       name: '@electron-forge/maker-dmg',
       config: {
         format: 'ULFO',
-        background: path.resolve(__dirname, 'electron', 'icons', 'dmg-bg.png'),
-        icon: path.resolve(__dirname, 'electron', 'icons', 'icon.icns'),
       },
     },
     {
@@ -58,7 +55,7 @@ module.exports = {
         options: {
           maintainer: 'AgenticTM',
           homepage: 'https://github.com/PhiloCyber/agent-threat-modeler',
-          icon: path.resolve(__dirname, 'electron', 'icons', 'icon.png'),
+          icon: path.resolve(__dirname, 'electron', 'icons', 'logo.png'),
         },
       },
     },
@@ -67,7 +64,7 @@ module.exports = {
       config: {
         options: {
           homepage: 'https://github.com/PhiloCyber/agent-threat-modeler',
-          icon: path.resolve(__dirname, 'electron', 'icons', 'icon.png'),
+          icon: path.resolve(__dirname, 'electron', 'icons', 'logo.png'),
         },
       },
     },
