@@ -46,7 +46,7 @@ Las razones son concretas y accionables:
 | # | Problema | Severidad | Impacto en Producción |
 |---|---------|-----------|----------------------|
 | 1 | PDF upload corrupto (binary leído como UTF-8) | **Crítico** | Usuarios suben PDFs → basura en el análisis |
-| 2 | quick_thinker == deep_thinker (ambos qwen3:8b) | **Alto** | Se pierde la arquitectura multi-tier diseñada | ✅ Resuelto: 4 tiers con qwen3:4b / qwen3.5:9b / gemma4:26b |
+| 2 | quick_thinker == deep_thinker (ambos qwen3:8b) | **Alto** | Se pierde la arquitectura multi-tier diseñada | ✅ Resuelto: quick=qwen3:4b; stride/deep/VLM=qwen3.5:9b |
 | 3 | Inconsistencia ES/EN en prompts | **Alto** | Modelos 8B confunden idioma ↔ peor output |
 | 4 | JSON extraction por regex (sin structured output) | **Alto** | Fallas silenciosas, datos perdidos |
 | 5 | `max_validation_iterations` configurado pero NO usado | **Medio** | Feature muerta en config visible al usuario |
@@ -158,20 +158,22 @@ Buena idea conceptualmente, pero **no se alimenta de los threats generados por l
 
 ```json
 "quick_thinker": { "model": "qwen3:4b", "temperature": 0.3 },
-"deep_thinker": { "model": "gemma4:26b", "temperature": 0.2 }
+"deep_thinker": { "model": "qwen3.5:9b", "temperature": 0.2, "num_ctx": 32768 }
 ```
 
-> **Nota v0.3.2:** Este hallazgo fue resuelto. Ahora hay 4 tiers diferenciados: quick=qwen3:4b, stride=qwen3.5:9b, deep=gemma4:26b, vlm=qwen3.5:9b.
+> **Nota v0.3.2:** Este hallazgo fue resuelto. Hay 4 tiers en config: quick=qwen3:4b; stride/deep/vlm=qwen3.5:9b (9B, ~6.6 GB). `deep_thinker` reutiliza el mismo peso que STRIDE/VLM para evitar OOM y swap en GPUs modestas.
 
 La arquitectura **diseña** una diferenciación multi-tier:
-- `quick_thinker`: analistas STRIDE, PASTA, Attack Tree, MAESTRO, AI Threat, debate
-- `deep_thinker`: attack_tree_enriched, threat_synthesizer, dread_validator
+- `quick_thinker`: analistas PASTA, Attack Tree, MAESTRO, AI Threat, DREAD, localizer (tareas rápidas en 4B)
+- `stride_thinker`: STRIDE y debate Red/Blue (9B)
+- `deep_thinker`: attack_tree_enriched, threat_synthesizer (9B con JSON forzado, más contexto)
+- `vlm`: diagramas (mismo qwen3.5:9b)
 
-Pero en la configuración actual **ambos son el mismo modelo** con apenas 0.1 de diferencia en temperature. Esto anula completamente el beneficio de tener dos tiers.
+Quick (4B) y deep (9B) ya no son el mismo modelo; el salto de capacidad está en el tier deep/stride frente al quick.
 
 ### Impacto Real
 
-- El `threat_synthesizer` recibe **TODA la información de 5 analistas + debate** — puede ser un prompt de 15-30K tokens. Un modelo 8B con esa carga tiene alta probabilidad de:
+- El `threat_synthesizer` recibe **TODA la información de 5 analistas + debate** — puede ser un prompt de 15-30K tokens. Un modelo pequeño (p. ej. 4B) con esa carga tiene alta probabilidad de:
   - Perder contexto (ventana de atención saturada)
   - Producir JSON malformado
   - Omitir threats que están al inicio del prompt
@@ -182,7 +184,7 @@ Pero en la configuración actual **ambos son el mismo modelo** con apenas 0.1 de
 | Tier | Uso | Modelo Actual |
 |------|-----|----------------------|
 | `quick_thinker` | Analistas individuales, debate | qwen3:4b |
-| `deep_thinker` | Synthesizer, validator, enriched tree | gemma4:26b |
+| `deep_thinker` | Synthesizer, enriched tree | qwen3.5:9b |
 | `stride_thinker` | STRIDE analyst, debate | qwen3.5:9b |
 | `vlm` | Diagramas (nativo en Qwen3.5) | qwen3.5:9b |
 

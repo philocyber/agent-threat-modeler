@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import time
 from typing import TYPE_CHECKING
 
@@ -63,13 +64,14 @@ _THREAT_CATEGORY_KEYWORDS: dict[str, list[str]] = {
     "Privacidad y Lógica de Negocio": [
         "privacy", "privacidad", "pii", "gdpr", "ccpa", "personal data",
         "consent", "business logic", "repudiation", "repudio", "audit trail",
-        "data protection", "retention", "anonymi", "trazab", "exfiltr",
+        "data protection", "retention", "anonymi", "trazab",
     ],
     "Vulnerabilidades Web y API": [
-        "web", "api", "frontend", "xss", "csrf", "sql inject", "idor", "http",
+        "web", "api", "frontend", "xss", "csrf", "sql inject", "sql", "idor", "http",
         "cors", "cookie", "session", "jwt", "oauth", "endpoint", "gateway",
         "rate limit", "input valid", "sanitiz", "deserialization", "ssrf",
-        "inyecci",
+        "inyecci", "inject", "clickjack", "header", "redirect", "traversal",
+        "upload", "path travers", "open redirect", "broken auth",
     ],
     "Riesgos de Integración Agéntica": [
         "agent", "agentic", "agéntic", "orchestrat", "orquest", "loop",
@@ -77,10 +79,12 @@ _THREAT_CATEGORY_KEYWORDS: dict[str, list[str]] = {
         "checkpoint", "state manip", "multi-agent", "tool call", "bucle",
     ],
     "Amenazas Nativas de IA y LLM": [
-        "llm", "prompt inject", "jailbreak", "hallucin", "alucinaci", "model",
-        "training", "poisoning", "embedding", "rag", "vector", "adversarial",
-        "extraction", "system prompt", "guardrail", "artificial intelligence",
-        "machine learning", "nlp", "bias", "sesgo",
+        "llm", "prompt inject", "jailbreak", "hallucin", "alucinaci",
+        "training data", "data poisoning", "model poisoning", "embedding attack",
+        "rag pipeline", "vector database", "adversarial input", "adversarial example",
+        "model extraction", "system prompt leak", "guardrail bypass",
+        "artificial intelligence", "machine learning", "nlp pipeline",
+        "bias", "sesgo", "fine-tun", "inference attack",
     ],
     "Factores Humanos y Gobernanza": [
         "human", "humano", "governance", "gobernanza", "oversight",
@@ -96,19 +100,74 @@ _CATEGORY_PREFIX_MAP: dict[str, str] = {
     "Riesgos de Integración Agéntica": "AGE",
     "Amenazas Nativas de IA y LLM": "LLM",
     "Factores Humanos y Gobernanza": "HUM",
+    "Amenazas Generales": "GEN",
+}
+
+_STRIDE_TO_CATEGORY: dict[str, str] = {
+    "S": "Infraestructura y Cumplimiento",
+    "T": "Vulnerabilidades Web y API",
+    "R": "Privacidad y Lógica de Negocio",
+    "I": "Infraestructura y Cumplimiento",
+    "D": "Infraestructura y Cumplimiento",
+    "E": "Infraestructura y Cumplimiento",
 }
 
 
 def _classify_threat_category(threat: dict) -> str:
-    """Classify a threat into a professional category by content analysis."""
+    """Classify a threat into a professional category by keyword score.
+
+    Counts how many keywords from each category appear in the threat text
+    and returns the category with the highest match count.  On a tie the
+    more specific category wins (Web > Privacy > Infrastructure).
+    """
     text = " ".join(
         _to_str(threat.get(k, ""))
         for k in ("description", "component", "methodology", "mitigation", "attack_path")
     ).lower()
+
+    _SPECIFICITY_BONUS: dict[str, float] = {
+        "Vulnerabilidades Web y API": 1.0,
+        "Amenazas Nativas de IA y LLM": 0.8,
+        "Riesgos de Integración Agéntica": 0.6,
+        "Factores Humanos y Gobernanza": 0.2,
+        "Privacidad y Lógica de Negocio": 0.1,
+        "Infraestructura y Cumplimiento": 0.0,
+    }
+
+    _SPECIFIC_CATEGORIES = frozenset({
+        "Vulnerabilidades Web y API",
+        "Amenazas Nativas de IA y LLM",
+        "Riesgos de Integración Agéntica",
+        "Factores Humanos y Gobernanza",
+    })
+    _BROAD_CATEGORIES = frozenset({
+        "Infraestructura y Cumplimiento",
+        "Privacidad y Lógica de Negocio",
+    })
+
+    scores: dict[str, float] = {}
     for cat, kws in _THREAT_CATEGORY_KEYWORDS.items():
-        if any(kw in text for kw in kws):
-            return cat
-    return "Amenazas Generales"
+        hits = sum(1 for kw in kws if kw in text)
+        if hits > 0:
+            scores[cat] = hits + _SPECIFICITY_BONUS.get(cat, 0.0)
+
+    if not scores:
+        stride = (threat.get("stride_category") or "").strip()
+        if stride in _STRIDE_TO_CATEGORY:
+            return _STRIDE_TO_CATEGORY[stride]
+        return "Amenazas Generales"
+
+    best_cat = max(scores, key=lambda c: scores[c])
+    best_score = scores[best_cat]
+
+    # Tie-breaker: prefer specific categories over broad when close
+    if best_cat in _BROAD_CATEGORIES:
+        for cat in _SPECIFIC_CATEGORIES:
+            if cat in scores and scores[cat] >= best_score - 1.0:
+                best_cat = cat
+                break
+
+    return best_cat
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +183,10 @@ _STRIDE_KEYWORDS: dict[str, list[str]] = {
         "dominio no verificado", "unverified domain", "token theft",
         "robo de token", "stolen session", "fake email", "fake sender",
         "confianza en dominio", "trust domain", "whitelist bypass",
+        "authentication", "autenticaci", "login bypass", "account takeover",
+        "password brute", "password spray", "credential stuff", "oauth misconfig",
+        "saml", "sso bypass", "token replay", "session fixation", "weak auth",
+        "broken auth", "missing auth", "identity fraud",
     ],
     "T": [
         "tampering", "tamper", "integrity", "modif", "alter",
@@ -134,6 +197,10 @@ _STRIDE_KEYWORDS: dict[str, list[str]] = {
         "field mapping", "mapeo de", "sql inject", "command inject",
         "xss", "cross-site script",
         "input validat", "validaci", "schema bypass", "no valida",
+        "parameter tamper", "request forgery", "csrf", "file upload",
+        "path traversal", "directory traversal", "insecure deserializ",
+        "prototype pollut", "xml inject", "ldap inject", "nosql inject",
+        "template inject", "ssti", "header inject", "crlf inject",
     ],
     "R": [
         "repudiation", "repudio", "non-repudiation", "logging", "audit",
@@ -141,6 +208,9 @@ _STRIDE_KEYWORDS: dict[str, list[str]] = {
         "no record", "unlogged", "auditoria", "auditoría", "trazabilidad",
         "forensic", "forense", "log tampering", "log injection",
         "without logging", "sin registro", "borrado de log", "log deletion",
+        "insufficient log", "missing log", "no audit", "audit trail",
+        "compliance gap", "siem", "monitoring gap", "untracked",
+        "undocumented", "no trace", "accountability gap",
     ],
     "I": [
         "information disclosure", "data leak", "exfiltrat", "exposure",
@@ -148,11 +218,20 @@ _STRIDE_KEYWORDS: dict[str, list[str]] = {
         "unauthorized read", "intercept", "sniff", "man-in-the-middle",
         "mitm", "eavesdrop", "disclosure", "divulgaci",
         "datos sensibles", "fuga de dato", "expose secret",
+        "verbose error", "stack trace", "debug info", "api key expos",
+        "secret leak", "credential expos", "unencrypt", "plaintext",
+        "insecure storage", "s3 public", "bucket public", "misconfigur",
+        "information leak", "metadata expos", "pii expos", "data expos",
+        "side channel", "timing attack",
     ],
     "D": [
         "denial of service", "dos", "ddos", "availability", "resource exhaust",
         "crash", "timeout", "overload", "flood", "disruption", "denegaci",
         "unavailab", "outage", "degrade", "slow",
+        "rate limit", "throttl", "memory exhaust", "cpu exhaust",
+        "disk exhaust", "connection exhaust", "socket exhaust",
+        "infinite loop", "deadlock", "starvat", "backpressure",
+        "queue overflow", "service disrupt", "downtime",
     ],
     "E": [
         "elevation of privilege", "privilege escalat", "escalat", "admin access",
@@ -163,6 +242,9 @@ _STRIDE_KEYWORDS: dict[str, list[str]] = {
         "comprometer sesión admin", "compromise admin", "mfa bypass",
         "panel administrativo", "admin panel", "admin dashboard",
         "supply chain", "cadena de suministro", "ci/cd", "pipeline compromise",
+        "horizontal escalat", "vertical escalat", "insecure direct object",
+        "idor", "broken access", "missing access control", "function level",
+        "mass assignment", "forced browsing", "jwt privilege",
     ],
 }
 
@@ -204,7 +286,12 @@ def _normalize_stride_category(raw: str) -> str:
 
 
 def _infer_stride_category(threat: dict) -> str:
-    """Infer the STRIDE category from threat text when not explicitly set."""
+    """Infer the STRIDE category from threat text when not explicitly set.
+
+    Returns "I" (Information Disclosure) as a safe default when no keywords
+    match, since it is the most common STRIDE category and preferable to an
+    empty string that breaks downstream processing.
+    """
     text = " ".join(
         _to_str(threat.get(k, ""))
         for k in ("description", "attack_path", "component", "methodology")
@@ -216,26 +303,26 @@ def _infer_stride_category(threat: dict) -> str:
         if score > best_score:
             best_score = score
             best = cat
-    return best
+    return best or "I"
 
 
 # Default mitigations per STRIDE category (used when analyst doesn't provide one)
 _DEFAULT_MITIGATIONS: dict[str, str] = {
-    "S": "Implementar autenticación multifactor (MFA) y validación robusta de tokens/sesiones.",
-    "T": "Aplicar validación de integridad de datos, checksums y controles de acceso de escritura.",
-    "R": "Implementar logging centralizado y auditoría inmutable de todas las operaciones críticas.",
-    "I": "Aplicar cifrado en tránsito (TLS 1.3) y en reposo; restringir acceso según principio de mínimo privilegio.",
-    "D": "Implementar rate limiting, auto-scaling y monitoreo de disponibilidad con alertas.",
-    "E": "Aplicar principio de mínimo privilegio en todos los roles IAM; revisar y auditar permisos periódicamente.",
+    "S": "Implementar autenticación multifactor (MFA), validación robusta de tokens/sesiones y protección contra credential stuffing. Verificar identidad en cada capa de confianza.",
+    "T": "Aplicar validación de integridad de datos con checksums/HMAC, controles de acceso de escritura estrictos y mecanismos de detección de modificaciones no autorizadas.",
+    "R": "Implementar logging centralizado e inmutable (append-only) de todas las operaciones críticas. Incluir timestamps, usuario, acción y resultado en cada registro de auditoría.",
+    "I": "Aplicar cifrado en tránsito (TLS 1.3) y en reposo (AES-256). Restringir acceso según principio de mínimo privilegio. Clasificar datos por sensibilidad y aplicar controles proporcionales.",
+    "D": "Implementar rate limiting por IP/usuario, auto-scaling con umbrales definidos, circuit breakers en dependencias y monitoreo de disponibilidad con alertas automatizadas.",
+    "E": "Aplicar principio de mínimo privilegio en todos los roles IAM. Implementar separación de funciones, revisión periódica de permisos y detección de escalamiento anómalo.",
 }
 
 _DEFAULT_CONTROLS: dict[str, str] = {
-    "S": "NIST IA-2, OWASP ASVS V2",
-    "T": "NIST SI-7, OWASP ASVS V5",
-    "R": "NIST AU-2, AU-3, OWASP ASVS V7",
-    "I": "NIST SC-8, SC-28, OWASP ASVS V8",
-    "D": "NIST SC-5, OWASP ASVS V11",
-    "E": "NIST AC-6, OWASP ASVS V4",
+    "S": "NIST IA-2 (Identification and Authentication), IA-5 (Authenticator Management), OWASP ASVS V2 (Authentication)",
+    "T": "NIST SI-7 (Software, Firmware, and Information Integrity), SI-10 (Information Input Validation), OWASP ASVS V5 (Validation)",
+    "R": "NIST AU-2 (Event Logging), AU-3 (Content of Audit Records), AU-6 (Audit Record Review), OWASP ASVS V7 (Error Handling and Logging)",
+    "I": "NIST SC-8 (Transmission Confidentiality), SC-28 (Protection of Information at Rest), AC-3 (Access Enforcement), OWASP ASVS V8 (Data Protection)",
+    "D": "NIST SC-5 (Denial-of-Service Protection), CP-9 (System Backup), CP-10 (System Recovery), OWASP ASVS V11 (Business Logic)",
+    "E": "NIST AC-6 (Least Privilege), AC-2 (Account Management), AC-5 (Separation of Duties), OWASP ASVS V4 (Access Control)",
 }
 
 
@@ -1011,17 +1098,29 @@ def _extract_threats_from_reports(state: ThreatModelState) -> list[dict]:
 
 
 _COMPONENT_SYNONYMS: dict[str, list[str]] = {
-    "database": ["base de datos", "db", "database", "almacen", "almacén"],
-    "service": ["servicio", "service", "worker", "daemon"],
-    "gateway": ["gateway", "puerta", "interfaz", "pasarela"],
-    "interface": ["interfaz", "interface", "panel", "pantalla", "ui"],
+    "database": ["base de datos", "db", "database", "almacen", "almacén", "dynamo", "rds", "postgres", "mysql", "mongo"],
+    "service": ["servicio", "service", "worker", "daemon", "microservicio"],
+    "gateway": ["gateway", "puerta", "pasarela", "api gateway", "api-gateway"],
+    "interface": ["interfaz", "interface", "panel", "pantalla", "ui", "frontend", "spa"],
     "engine": ["motor", "engine", "procesador"],
     "admin": ["admin", "administración", "administracion", "administrador"],
-    "user": ["usuario", "user"],
-    "email": ["email", "correo", "mail", "buzón", "buzon"],
-    "file": ["archivo", "file", "fichero", "adjunto", "attachment"],
-    "secrets": ["secreto", "secrets", "credential", "credencial"],
-    "rule": ["regla", "rule", "norma"],
+    "user": ["usuario", "user", "cliente", "consumidor"],
+    "email": ["email", "correo", "mail", "buzón", "buzon", "ses", "smtp"],
+    "file": ["archivo", "file", "fichero", "adjunto", "attachment", "upload"],
+    "secrets": ["secreto", "secrets", "credential", "credencial", "contraseña", "password"],
+    "rule": ["regla", "rule", "norma", "política", "politica"],
+    "lambda": ["lambda", "función", "funcion", "function", "serverless", "faas"],
+    "api": ["api", "endpoint", "rest", "graphql", "recurso"],
+    "storage": ["almacenamiento", "s3", "bucket", "blob", "object storage"],
+    "cache": ["cache", "caché", "redis", "memcached", "elasticache"],
+    "queue": ["cola", "queue", "sqs", "message", "mensaje", "evento", "event"],
+    "cdn": ["cdn", "cloudfront", "distribución", "distribucion", "edge"],
+    "payment": ["pago", "payment", "stripe", "pasarela de pagos", "billing", "facturación"],
+    "auth": ["autenticación", "autenticacion", "authentication", "auth", "login", "cognito", "oauth", "jwt", "token"],
+    "container": ["contenedor", "container", "docker", "kubernetes", "ecs", "eks", "pod"],
+    "network": ["red", "network", "vpc", "subnet", "firewall", "security group", "waf"],
+    "model": ["modelo", "model", "llm", "embedding", "inferencia", "inference", "ml"],
+    "agent": ["agente", "agent", "orquestador", "orchestrator", "pipeline"],
 }
 
 
@@ -1055,14 +1154,45 @@ def _infer_component_from_description(
         if score > best_score:
             best_score = score
             best_match = comp
-    if best_score >= 2:
-        return best_match
-    # Accept single strong word match for short component names
     if best_score >= 1 and best_match:
-        comp_words = [w for w in best_match.lower().split() if len(w) > 2]
-        if len(comp_words) <= 2:
-            return best_match
+        return best_match
     return ""
+
+
+# Patterns that indicate embedded garbage *within* an otherwise valid description.
+# We truncate at the first match instead of dropping the whole threat.
+_INLINE_GARBAGE_RE = re.compile(
+    r"(?:"
+    r"\|\s*-{2,}\s*\|"                             # markdown table separator
+    r"|```"                                         # fenced code block
+    r"|\*\s*\*\*(?:Root|Leaf|Child)\s+Node"         # attack-tree ASCII
+    r"|#{2,}\s+Attack\s+Tree"                       # markdown heading for attack tree
+    r"|(?:^|\n)\s*[-*]\s+\*\*(?:Frontend|Backend|Orquestaci|Datos|Pagos)[:\*]"  # arch dump
+    r"|(?:^|\n)\s*\d+\.\s+\*\*(?:Attacker|Attack|Root|Goal)"  # numbered attack steps
+    r"|\bID\s*\|\s*Threat\s+Name"                   # risk assessment table header
+    r"|\bstage_\d+_"                                # raw PASTA stage keys
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _sanitize_description(desc: str, _re_module=None) -> str:
+    """Truncate a description at the first embedded garbage pattern.
+
+    Returns the clean prefix (stripped).  If the entire description is garbage,
+    returns an empty string so the caller can drop it.
+    """
+    m = _INLINE_GARBAGE_RE.search(desc)
+    if m:
+        clean = desc[: m.start()].rstrip(" \t\n:;,-")
+        if len(clean) >= 40:
+            logger.info(
+                "[Sanitize] Truncated description at pos %d (pattern: %s)",
+                m.start(), m.group()[:30],
+            )
+            return clean
+        return ""
+    return desc
 
 
 def _apply_quality_gates(
@@ -1083,18 +1213,145 @@ def _apply_quality_gates(
     before = len(threats)
 
     # ── 1. Drop garbage ──
+    import re as _re
+
+    _GARBAGE_DESCRIPTION_PATTERNS = _re.compile(
+        r"(?i)^(?:attack\s+tree\s+construction|attacker\s+goals|descripci[oó]n\s+general"
+        r"|risk\s+assessment|an[aá]lisis\s+stride|an[aá]lisis\s+contextual"
+        r"|mapeo\s+de\s+mitigaci|fuentes\s+de\s+evidencia|evidence\s+sources"
+        r"|the\s+system\s+is\s+a|el\s+sistema\s+es\s+una"
+        r"|conclusi[oó]n|below\s+is\s+the\s+structured"
+        r"|principios?\s+de\s+seguridad|estrategias?\s+de\s+mitigaci"
+        r"|security\s+principles|mitigation\s+strateg"
+        r"|recomendaciones?\s+de\s+seguridad|security\s+recommendation"
+        r"|key\s+security\s+principles|para\s+contrarrestar"
+        r"|cloud\s+and\s+infrastructure\s+security|desaf[ií]os\s+de\s+seguridad"
+        r"|marcos\s+de\s+threat\s+model|advanced\s+threat\s+model"
+        r"|modern\s+threat\s+model|el\s+threat\s+modeling\s+moderno"
+        r"|autonom[ií]a\s+no\s+controlada|el\s+auge\s+de\s+los"
+        r"|threat\s+modeling\s+is\s+moving|there\s+is\s+a\s+transition"
+        r"|the\s+focus\s+of\s+threat|new\s+approaches\s+emphasize"
+        r"|threat\s+modeling\s+methodologies|emerging\s+technologies\s*[&y]\s*security"
+        r"|the\s+documents?\s+outline|the\s+documentation\s+highlights"
+        r"|threat\s+landscape\s*[&y]\s*vulnerability|core\s+methodologies\s+for"
+        r"|the\s+documents?\s+categorize|vulnerability\s+categories)"
+    )
+    _THREAT_CONTENT_TERMS = _re.compile(
+        r"(?i)(?:"
+        # English threat terms (word-start boundary only)
+        r"\b(?:vulnerab|attack|exploit|inject|breach|unauthori"
+        r"|intercept|spoof|tamper|denial|elevat|privilege"
+        r"|exfiltrat|bypass|overflow|malicious|compromis"
+        r"|forgery|hijack|phishing|credential|brute.force"
+        r"|cross.site|remote.code|replay|session.?hijack"
+        r"|sensitive.?data|man.in.the|mitm|sqli|xss|csrf|ssrf|rce"
+        r"|ddos|misconfig|exposure|leak|theft|steal"
+        r"|insecure|weak|missing|lack|absent|default"
+        r"|encrypt|cleartext|plaintext|unprotect|token"
+        r"|escalat|impersonat|poisoning|adversarial"
+        r"|untrust|unauthor|unauth|unenforce"
+        r")"
+        # Spanish threat terms (no trailing \b to allow suffixes)
+        r"|(?:inyecci|inyectar|suplantaci|manipulaci|denegaci|ataqu)"
+        r"|(?:vulnerabilidad|explot|amenaz|riesg|acceso.{0,5}no.{0,5}autoriz)"
+        r"|(?:datos.{0,5}sensib|robo|fuga|secuestro|suplant|escala)"
+        r"|(?:cifra|texto.{0,5}claro|sin.{0,5}cifr|sin.{0,5}autent|sin.{0,5}valid)"
+        r"|(?:configuraci.n.{0,5}inseg|exposi|filtraci)"
+        r"|(?:ejecutar.{0,10}malicioso|ejecutar.{0,10}c.digo|ejecutar.{0,10}instruc)"
+        r"|(?:brecha|desactualiz|parches|exploit)"
+        r"|(?:acceso.{0,5}excesiv|acceso.{0,5}no.{0,5}restringid|sin.{0,5}restricci)"
+        r"|(?:contrase.a|credencial|IP.{0,3}p.blic|direcci.n.{0,5}IP)"
+        # Additional Spanish/domain terms for threats commonly missed
+        r"|(?:no.{0,5}confiab|entradas.{0,10}no.{0,5}confiab|entrada.{0,5}no.{0,5}valid)"
+        r"|(?:accesib.{0,10}p.blic|red.{0,5}p.blic|expuest.{0,5}p.blic)"
+        r"|(?:usuarios?.{0,5}invitad|sin.{0,5}requerir|permiti.{0,10}sin)"
+        r"|(?:archivos?.{0,5}malicioso|carga.{0,10}malicioso|c.digo.{0,5}malicioso)"
+        r"|(?:tr.fico.{0,10}no.{0,5}restring|grupo.{0,5}de.{0,5}seguridad)"
+        r"|(?:no.{0,5}registra|no.{0,5}restringe|no.{0,5}cifra|no.{0,5}valida)"
+        r"|(?:componentes?.{0,10}desactualiz|componentes?.{0,10}vulnerab)"
+        r"|(?:intercepta|exfiltra|compromet|secuestra|suplanta)"
+        r"|(?:cargar.{0,10}ejecutar|leer.{0,10}ejecutar|interpret.{0,10}ejecutar)"
+        # Infrastructure/protocol terms
+        r"|(?:LDAP|SAML|HTTPS?|XML|XXE|NoSQL|IDOR|BOLA)"
+        r"|S3.bucket|IAM.pol|API.?Gateway|Lambda|Redis|RDS|DynamoDB"
+        r"|CloudFront|VPN|WAF|JWT|OAuth|SSL|TLS|Kubernetes|EKS|S3"
+        r"|ChromaDB|LangGraph|FastAPI|WebSocket"
+        r")"
+    )
+
+    _RAG_COPY_PATTERN = _re.compile(r"^TMA-[0-9A-Fa-f]{4}$")
+
     filtered: list[dict] = []
+    dropped_short = 0
+    dropped_garbage = 0
+    dropped_rag_copy = 0
     for t in threats:
         desc = (t.get("description") or "").strip()
-        if len(desc) < 40:
+        tid = (t.get("id") or "").strip()
+
+        if len(desc) < 40 or " " not in desc:
+            dropped_short += 1
             continue
-        if " " not in desc:
+        if _RAG_COPY_PATTERN.match(tid):
+            dropped_rag_copy += 1
+            continue
+        ttype = (t.get("type") or "").strip().lower()
+        if ttype == "control":
+            dropped_rag_copy += 1
+            continue
+        if _GARBAGE_DESCRIPTION_PATTERNS.match(desc):
+            dropped_garbage += 1
+            continue
+        _control_pattern = _re.compile(
+            r"(?i)^(?:asegurar\s+que|implementar|verificar\s+que|utilizar|emplear|recopilar"
+            r"|controles?\s+de\s+seguridad|marco\s+de\s+modelado|redactar.+ofuscar"
+            r"|inspeccionar\s+las\s+entradas"
+            r"|implement\s+(?:robust|controls|mechanisms|strong)|ensure\s+(?:all|aws|only|that)"
+            r"|integrate\s+resources|use\s+aws|require\s+imdsv2|redact,?\s+obfuscat"
+            r"|assign\s+a\s+resource|establish\s+and\s+enforce|collect,?\s+process"
+            r"|verify\s+that\s+the|configure\s+(?:all|endpoint|security)"
+            r"|maintain\s+(?:all|a\s+list|an\s+inventory)|protect\s+against\s+automated)"
+        )
+        if _control_pattern.match(desc):
+            dropped_garbage += 1
+            continue
+        if _re.search(r"\|\s*-{2,}\s*\|", desc) and desc.count("|") > 8:
+            dropped_garbage += 1
+            continue
+        if "```json" in desc or '{"evidence_sources"' in desc or '"source_type"' in desc:
+            dropped_garbage += 1
+            continue
+        # Detect RAG-style academic/overview content that isn't a specific threat
+        _rag_overview_pattern = _re.compile(
+            r"(?i)(?:el\s+auge\s+de|the\s+rise\s+of|has\s+shifted\s+to|se\s+est[aá]\s+alejando"
+            r"|nueva\s+clase\s+de\s+vulnerabilidades|new\s+class\s+of\s+vulnerabilit"
+            r"|traditional\s+models|modelos\s+tradicionales"
+            r"|modern\s+.*\s+is\s+moving|methodological\s+shift"
+            r"|context.aware\s+model|as\s+infrastructure\s+shifts)"
+        )
+        if _rag_overview_pattern.search(desc):
+            logger.info("[QualityGate] Dropped (RAG overview content): %.200s", desc[:200])
+            dropped_garbage += 1
+            continue
+        # Sanitize: truncate descriptions that embed tables, ASCII trees,
+        # architecture dumps, or code blocks mid-text (preserve the valid prefix).
+        desc = _sanitize_description(desc, _re)
+        if len(desc) < 40:
+            dropped_garbage += 1
+            continue
+        t["description"] = desc
+        if not _THREAT_CONTENT_TERMS.search(desc):
+            logger.info("[QualityGate] Dropped (no threat terms): %.200s", desc[:200])
+            dropped_garbage += 1
             continue
         filtered.append(t)
 
-    dropped = before - len(filtered)
+    dropped = dropped_short + dropped_garbage + dropped_rag_copy
     if dropped:
-        logger.info("[QualityGate] Dropped %d garbage threats (<%d chars or no content)", dropped, 40)
+        logger.info(
+            "[QualityGate] Dropped %d garbage threats (short=%d, non-threat=%d, rag-copy=%d)",
+            dropped, dropped_short, dropped_garbage, dropped_rag_copy,
+        )
 
     # ── 2. Infer missing component names ──
     comp_list = known_components or []
@@ -1112,6 +1369,7 @@ def _apply_quality_gates(
 
     # ── 3. Normalize STRIDE categories and guarantee mitigations/controls ──
     stride_fixed = 0
+    stride_defaulted = 0
     mit_filled = 0
     ctrl_filled = 0
     for t in filtered:
@@ -1120,7 +1378,13 @@ def _apply_quality_gates(
         if raw_stride and not normalized:
             stride_fixed += 1
         if not normalized:
-            normalized = _infer_stride_category(t)
+            inferred = _infer_stride_category(t)
+            if inferred == "I" and not any(
+                kw in (t.get("description", "") + " " + t.get("attack_path", "")).lower()
+                for kw in ("disclosure", "leak", "exfiltrat", "exposure", "confidential")
+            ):
+                stride_defaulted += 1
+            normalized = inferred
         t["stride_category"] = normalized
 
         if not (t.get("mitigation") or "").strip():
@@ -1132,6 +1396,8 @@ def _apply_quality_gates(
 
     if stride_fixed:
         logger.info("[QualityGate] Fixed %d invalid STRIDE categories (e.g. LLM02|ASI03 -> inferred)", stride_fixed)
+    if stride_defaulted:
+        logger.info("[QualityGate] Defaulted %d threats to STRIDE=I (no keywords matched)", stride_defaulted)
 
     if mit_filled:
         logger.info("[QualityGate] Filled %d empty mitigations with STRIDE defaults", mit_filled)
@@ -1501,8 +1767,7 @@ Return ONLY a JSON array where each element has:
   {"index": 0, "description": "...", "mitigation": "...", "control_reference": "..."}
 
 Match the "index" to the position in the input array (0-based).
-Generate ALL text in professional Spanish (neutral Latin American).
-Keep technical terms, acronyms, and framework references in English.
+Generate ALL text in professional English.
 """
 
 _ENRICH_BATCH_SIZE = 10
@@ -1513,6 +1778,7 @@ def _enrich_weak_threats(
     threats: list[dict],
     llm: BaseChatModel,
     system_description: str = "",
+    known_components: list[str] | None = None,
 ) -> list[dict]:
     """Expand short descriptions and fill empty mitigations via a batched LLM call.
 
@@ -1603,6 +1869,50 @@ def _enrich_weak_threats(
         except Exception as exc:
             logger.warning("[Enrich] Batch %d failed: %s -- keeping originals", batch_start, exc)
 
+    # ── LLM-based component inference for remaining empty components ──
+    empty_comp_indices = [
+        i for i, t in enumerate(threats)
+        if not (t.get("component") or "").strip()
+    ]
+    if empty_comp_indices and len(empty_comp_indices) >= 2:
+        logger.info("[Enrich] %d threats still have empty components — LLM inference", len(empty_comp_indices))
+        comp_items = []
+        for pos, idx in enumerate(empty_comp_indices[:15]):
+            comp_items.append({
+                "index": pos,
+                "description": threats[idx].get("description", "")[:300],
+            })
+        comp_prompt = (
+            f"Known components: {', '.join(c for c in (known_components or []) if c)}\n\n"
+            f"For each threat below, identify the SINGLE most affected component from the list above.\n"
+            f"Return JSON: [{{'index': 0, 'component': 'ComponentName'}}, ...]\n\n"
+            + json.dumps(comp_items, indent=1, ensure_ascii=False)
+        )
+        try:
+            from agentictm.agents.base import invoke_agent
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                comp_future = executor.submit(
+                    lambda: invoke_agent(llm, "You map threat descriptions to architecture components. Return ONLY JSON.", comp_prompt, agent_name="ComponentInfer")
+                )
+                comp_resp = comp_future.result(timeout=60)
+            comp_parsed = extract_json_from_response(comp_resp)
+            if isinstance(comp_parsed, list):
+                comp_filled = 0
+                for item in comp_parsed:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        pos = int(item.get("index", -1))
+                    except (TypeError, ValueError):
+                        continue
+                    comp_name = _to_str(item.get("component", ""))
+                    if 0 <= pos < len(empty_comp_indices) and comp_name:
+                        threats[empty_comp_indices[pos]]["component"] = comp_name
+                        comp_filled += 1
+                logger.info("[Enrich] LLM inferred components for %d/%d threats", comp_filled, len(empty_comp_indices))
+        except Exception as comp_exc:
+            logger.warning("[Enrich] LLM component inference failed: %s", comp_exc)
+
     return threats
 
 
@@ -1660,25 +1970,7 @@ def run_threat_synthesizer(
             f"   Professional threat models contain {_min_t}-{_max_t} threats. Aim for {_target}-{_target + 5} threats",
         )
 
-    # ── Add Spanish output directive when configured ──
     _output_lang = config.pipeline.output_language if config else "en"
-    if _output_lang == "es":
-        effective_system_prompt += """
-
-LANGUAGE RULE — CRITICAL:
-You MUST generate ALL text content in professional Spanish (neutral Latin American).
-This applies to: descriptions, attack_paths, mitigations, executive_summary,
-observations, methodology_contributions, and evidence_source excerpts.
-Keep the following in English:
-  - Field/key names in JSON (id, component, stride_category, etc.)
-  - Industry-standard acronyms and technical terms (STRIDE, DREAD, XSS, IDOR, SSRF, JWT,
-    NIST, CIS, OWASP, CAPEC, CWE, ATT&CK, CVE, API, SQL, IAM, S3, etc.)
-  - DREAD numeric scores and priority labels (Critical, High, Medium, Low)
-Example description in Spanish:
-  "Un atacante compromete las credenciales de un usuario a través de phishing, roba su
-   token JWT y lo utiliza para acceder al API Gateway. Luego explota una función Lambda
-   mal configurada para extraer metadatos de DynamoDB."
-"""
 
     human_prompt = _build_human_prompt(state)
     logger.info(
@@ -1769,13 +2061,19 @@ Example description in Spanish:
                 continue
 
             try:
-                d = _clamp_dread(int(t.get("damage", 0) or 0))
-                r = _clamp_dread(int(t.get("reproducibility", 0) or 0))
-                e = _clamp_dread(int(t.get("exploitability", 0) or 0))
-                a = _clamp_dread(int(t.get("affected_users", 0) or 0))
-                disc = _clamp_dread(int(t.get("discoverability", 0) or 0))
+                d = _clamp_dread(int(t.get("damage", 5) or 5))
+                r = _clamp_dread(int(t.get("reproducibility", 5) or 5))
+                e = _clamp_dread(int(t.get("exploitability", 5) or 5))
+                a = _clamp_dread(int(t.get("affected_users", 5) or 5))
+                disc = _clamp_dread(int(t.get("discoverability", 5) or 5))
             except (TypeError, ValueError):
                 d = r = e = a = disc = 5
+
+            # If all dimensions are 0 (model omitted them), use neutral midpoint
+            if d + r + e + a + disc == 0:
+                stride_cat_inferred = _normalize_stride_category(_to_str(t.get("stride_category", ""))) or _infer_stride_category(t)
+                scores = _asymmetric_dread(5, stride_cat_inferred, desc)
+                d, r, e, a, disc = scores["damage"], scores["reproducibility"], scores["exploitability"], scores["affected_users"], scores["discoverability"]
 
             if len({d, r, e, a, disc}) == 1 and d > 3:
                 logger.warning(
@@ -1825,6 +2123,77 @@ Example description in Spanish:
             )
             llm_threats = extract_threats_from_markdown(response, "Synthesizer")
 
+    # ── Step 3b: Retry with condensed prompt if too few threats ──
+    if len(llm_threats) < MIN_LLM_THREATS and baseline_count > 0:
+        remaining_budget = SYNTH_TIMEOUT - (time.perf_counter() - t0)
+        if remaining_budget > 120:
+            logger.warning(
+                "[Synthesizer] Only %d threats (need %d). Retrying with condensed prompt (%.0fs budget left).",
+                len(llm_threats), MIN_LLM_THREATS, remaining_budget,
+            )
+            condensed_threats = sorted(
+                baseline_threats, key=lambda t: t.get("dread_total", 0), reverse=True,
+            )[:20]
+            condensed_prompt = (
+                f"System: {state.get('system_description', '')[:3000]}\n\n"
+                f"Top {len(condensed_threats)} baseline threats (consolidate and expand):\n"
+                + json.dumps(condensed_threats, indent=1, ensure_ascii=False)[:12000]
+            )
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    retry_future = executor.submit(
+                        lambda: invoke_agent(
+                            llm, effective_system_prompt, condensed_prompt,
+                            agent_name="Synthesizer-Retry",
+                        )
+                    )
+                    retry_resp = retry_future.result(timeout=int(remaining_budget * 0.8))
+                retry_parsed = extract_json_from_response(retry_resp)
+                retry_items: list[dict] = []
+                if isinstance(retry_parsed, dict):
+                    retry_items = _find_threats_array(retry_parsed)
+                    executive_summary = retry_parsed.get("executive_summary", "") or executive_summary
+                elif isinstance(retry_parsed, list):
+                    retry_items = [t for t in retry_parsed if isinstance(t, dict)]
+                if retry_items:
+                    logger.info("[Synthesizer-Retry] Got %d threats from retry", len(retry_items))
+                    for t in retry_items:
+                        desc = _to_str(t.get("description") or t.get("title") or "")
+                        if not desc:
+                            continue
+                        try:
+                            d = _clamp_dread(int(t.get("damage", 5) or 5))
+                            r = _clamp_dread(int(t.get("reproducibility", 5) or 5))
+                            e = _clamp_dread(int(t.get("exploitability", 5) or 5))
+                            a = _clamp_dread(int(t.get("affected_users", 5) or 5))
+                            disc = _clamp_dread(int(t.get("discoverability", 5) or 5))
+                        except (TypeError, ValueError):
+                            d = r = e = a = disc = 5
+                        total = d + r + e + a + disc
+                        llm_threats.append({
+                            "id": _to_str(t.get("id", "")),
+                            "component": _to_str(t.get("component") or t.get("componente") or ""),
+                            "description": desc,
+                            "methodology": _to_str(t.get("methodology", "Synthesizer-Retry")),
+                            "stride_category": _normalize_stride_category(_to_str(t.get("stride_category", ""))) or _infer_stride_category(t),
+                            "attack_path": _to_str(t.get("attack_path", "")),
+                            "damage": d, "reproducibility": r, "exploitability": e,
+                            "affected_users": a, "discoverability": disc,
+                            "dread_total": total, "priority": _compute_priority(total),
+                            "mitigation": _to_str(t.get("mitigation", "")),
+                            "control_reference": _to_str(t.get("control_reference", "")),
+                            "effort": _to_str(t.get("effort", "Medium")),
+                            "observations": "", "status": "Open",
+                            "evidence_sources": [], "confidence_score": 0.6,
+                            "justification": None,
+                        })
+                    logger.info(
+                        "[Synthesizer-Retry] Total threats after retry: %d",
+                        len(llm_threats),
+                    )
+            except Exception as retry_exc:
+                logger.warning("[Synthesizer-Retry] Retry failed: %s", retry_exc)
+
     logger.info(
         "[Synthesizer] LLM produced %d threats (threshold=%d, baseline=%d)",
         len(llm_threats), MIN_LLM_THREATS, baseline_count,
@@ -1866,9 +2235,7 @@ Example description in Spanish:
             len(threats_final),
         )
 
-    # ── Step 4b: Translate baseline threats to Spanish if needed ──
-    if _used_baseline and _output_lang == "es":
-        threats_final = _translate_baseline_threats(threats_final, llm, output_language=_output_lang)
+    # Translation is handled by the output_localizer node downstream
 
     # ── Step 5: Quality gates (filter, deduplicate, fill gaps, cap count) ──
     _max_t = config.pipeline.max_threats if config else 30
@@ -1881,8 +2248,17 @@ Example description in Spanish:
     threats_final = _apply_quality_gates(threats_final, max_threats=_max_t, known_components=_known_comps)
 
     # ── Step 5b: Enrich weak threats (expand short descriptions, fill mitigations) ──
+    # Use quick_json for enrichment -- smaller, faster, more reliable for structured output
+    _enrich_llm = llm
+    try:
+        from agentictm.llm import create_llm
+        if config:
+            _enrich_llm = create_llm(config.quick_thinker, format_override="json")
+            logger.info("[Synthesizer] Using quick_json model (%s) for enrichment", config.quick_thinker.model)
+    except Exception as _e:
+        logger.debug("[Synthesizer] Could not create quick_json for enrichment: %s", _e)
     _sys_desc = state.get("system_description", "")
-    threats_final = _enrich_weak_threats(threats_final, llm, system_description=_sys_desc)
+    threats_final = _enrich_weak_threats(threats_final, _enrich_llm, system_description=_sys_desc, known_components=_known_comps)
 
     # ── Step 6: Assign category-based IDs (WEB-01, INF-02, etc.) ──
     threats_final.sort(key=lambda t: t.get("dread_total", 0), reverse=True)
@@ -1908,10 +2284,7 @@ Example description in Spanish:
 
     return {
         "threats_final": threats_final,
-        "executive_summary": executive_summary or (
-            "Modelo de amenazas sintetizado a partir de múltiples análisis metodológicos."
-            if _output_lang == "es"
-            else "Threat model synthesized from multiple methodology analyses."
-        ),
+        "executive_summary": executive_summary or
+            "Threat model synthesized from multiple methodology analyses.",
         "report_output": raw_response,  # Keep raw response for report
     }

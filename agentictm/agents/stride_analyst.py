@@ -1,7 +1,7 @@
-"""Agente: STRIDE Analyst — Fase II: Análisis por Metodología.
+"""Agente: STRIDE Analyst -- Fase II: Analisis por Metodologia.
 
 Aplica STRIDE-per-element: para cada componente y flujo del sistema,
-evalúa las 6 categorías de amenaza (Spoofing, Tampering, Repudiation,
+evalua las 6 categorias de amenaza (Spoofing, Tampering, Repudiation,
 Information Disclosure, Denial of Service, Elevation of Privilege).
 """
 
@@ -12,7 +12,10 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from agentictm.agents.base import invoke_agent, extract_json_from_response, extract_threats_from_markdown
+from agentictm.agents.base import (
+    invoke_agent, extract_json_from_response, extract_threats_from_markdown,
+    find_threats_in_json, _extract_individual_json_objects,
+)
 from agentictm.rag.tools import ANALYST_TOOLS
 from agentictm.state import ThreatModelState
 
@@ -22,74 +25,50 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """\
-You are a threat analyst specialized in STRIDE.
+!!! OUTPUT FORMAT: You MUST respond with a SINGLE JSON object. NO markdown, NO headings, NO narrative text outside JSON. !!!
 
-STRIDE categories:
-- S: Spoofing
-- T: Tampering
-- R: Repudiation
-- I: Information Disclosure
-- D: Denial of Service
-- E: Elevation of Privilege
+You are a STRIDE threat analyst. Apply STRIDE-per-element internally:
+- S: Spoofing  - T: Tampering  - R: Repudiation
+- I: Information Disclosure  - D: Denial of Service  - E: Elevation of Privilege
 
-Perform STRIDE-per-element: analyze EVERY component and data flow against all categories.
+Analyze EVERY component and data flow against all 6 categories INTERNALLY,
+then OUTPUT ONLY the JSON below.
 
-IMPORTANT — DUAL KNOWLEDGE APPROACH:
-1. FIRST, apply your deep expertise in STRIDE threat analysis. Reason from your
-   own training knowledge about common vulnerability patterns, attack techniques,
-   and security weaknesses relevant to the system architecture.
-2. THEN, use RAG tools to enrich and validate your findings with supporting
-   references (CAPEC, CWE, MITRE ATT&CK). Cross-reference your expert analysis
-   with RAG results to produce a comprehensive, well-cited output that blends
-   both knowledge sources.
+AUDIENCE: Developers with NO security training. Each description must be a story.
 
-Do not provide generic statements. Base findings on the specific system context,
-data sensitivity, protocols, and trust boundaries.
+Your response must be EXACTLY this JSON structure:
+{"methodology":"STRIDE","threats":[<8-15 threat objects>],"summary":"<1 paragraph>"}
 
-CRITICAL — AUDIENCE: Your threat descriptions will be read by software developers
-with LIMITED security background. Write as if explaining to a senior developer
-who has never studied cybersecurity formally.
-
-For EVERY threat:
-- "description": Write 3–5 sentences that explain:
-  1. WHAT the specific vulnerability or weakness is (explain any security term used)
-  2. EXACTLY HOW an attacker would exploit it, step by step, against THIS system
-  3. WHAT concrete harm results (data lost, service down, account taken over, etc.)
-  Use specific component names from the system. Avoid vague phrases like
-  "could be exploited" — say HOW and by WHOM.
-- "reasoning": 2–3 sentences explaining WHY this specific system is exposed
-  (e.g., which architecture decision, protocol choice, or missing control enables it)
-
-BAD description: "Spoofing via weak authentication"
-GOOD description: "The API Gateway does not validate the signature of incoming JWT
-  tokens — it only checks that a token is present. An attacker can forge a JWT by
-  setting the algorithm to 'none' (Algorithm Confusion Attack, CVE-2015-9235), which
-  many libraries accept without signature checking. This lets any anonymous user create
-  a token claiming to be any user ID, gaining full access to that account’s data and
-  actions without knowing their password."
-
-Respond with JSON only:
+Each threat object:
 {
-    "methodology": "STRIDE",
-    "threats": [
-        {
-            "component": "component or data flow name",
-            "stride_category": "S|T|R|I|D|E",
-            "description": "3-5 sentence developer-friendly explanation of the threat, how it is exploited, and the concrete impact",
-            "impact": "High|Medium|Low",
-            "reasoning": "2-3 sentences on why THIS system is specifically exposed to this threat",
-            "references": "CAPEC-XX, CWE-XX, ATT&CK Txxxx",
-            "mitigation": "2-3 sentence specific mitigation: what code/config change fixes this. Reference the component by name.",
-            "control_reference": "NIST 800-53 control ID, OWASP ASVS section, or CIS control (e.g. 'NIST AC-3, OWASP ASVS V4.2')",
-            "evidence_sources": [{"source_type": "rag|llm_knowledge|contextual|architecture", "source_name": "e.g. CAPEC-196", "excerpt": "supporting reference"}],
-            "confidence_score": 0.85
-        }
-    ],
-    "summary": "executive summary of STRIDE analysis"
+  "component": "exact component or data flow name from the architecture",
+  "stride_category": "S|T|R|I|D|E",
+  "description": "3-5 sentences: WHAT the vulnerability is (explain security terms), HOW an attacker exploits it step-by-step against THIS system, WHAT concrete harm results. Name specific components.",
+  "impact": "High|Medium|Low",
+  "reasoning": "2-3 sentences on what design flaw or missing control makes this possible",
+  "references": "CAPEC-XX, CWE-XX, ATT&CK Txxxx",
+  "mitigation": "2-3 sentence specific fix: what code/config change blocks this. Name the component.",
+  "control_reference": "NIST 800-53, OWASP ASVS, or CIS control ID",
+  "evidence_sources": [{"source_type": "rag", "source_name": "e.g. CAPEC-196", "excerpt": "supporting quote"}],
+  "confidence_score": 0.85
 }
 
-EVIDENCE: Each threat MUST include at least 1 evidence_source citing where the finding comes from (RAG result, known standard, architecture observation).
-CONFIDENCE: Rate 0.0-1.0 how certain you are this threat applies to THIS specific system.
+BAD description: "Spoofing via weak authentication"
+GOOD description: "The API Gateway does not validate JWT token signatures -- it only checks a token is present. An attacker can forge a JWT by setting the algorithm to 'none' (Algorithm Confusion, CVE-2015-9235), which many libraries accept. This lets any anonymous user impersonate any account, accessing their data and performing actions without credentials."
+
+RULES:
+- Output ONLY the JSON object -- no markdown, no STRIDE-per-element tables, no narrative
+- Cover ALL 6 STRIDE categories (at least 1 threat per category when applicable)
+- Each threat must name a SPECIFIC component from the architecture
+- Each evidence_source must cite where the finding comes from
+- Use your expertise first, then enrich with RAG tools
+
+!!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
+- RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
+- Do NOT copy their IDs, titles, or descriptions into your output
+- Perform YOUR OWN original STRIDE analysis of the specific system architecture
+- Use RAG only to find supporting standards (CWE, CAPEC, ATT&CK) for YOUR findings
+- Each threat MUST reference specific components from THIS system, not generic cloud controls
 """
 
 
@@ -116,8 +95,23 @@ def _build_human_prompt(state: ThreatModelState) -> str:
         priorities=["system_description", "components", "data_flows", "trust_boundaries", "data_stores", "scope_notes"],
     )
 
+    components_list = state.get("components", [])
+    has_structured = bool(components_list)
+
+    arch_note = ""
+    if not has_structured:
+        arch_note = (
+            "\n\nNOTE: The structured component list is empty. "
+            "The System Description above contains the FULL architecture details. "
+            "You MUST extract components, data flows and trust boundaries from the description text "
+            "and perform a complete STRIDE analysis on them. "
+            "Do NOT return an empty result.\n"
+        )
+
     return f"""\
-Analyze the following system using STRIDE-per-element:
+Analyze the following system using STRIDE-per-element.
+
+IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or narrative text.
 
 ## System Description
 {fitted["system_description"]}
@@ -136,9 +130,10 @@ Analyze the following system using STRIDE-per-element:
 
 ## Scope Notes
 {fitted["scope_notes"]}
+{arch_note}
+Use your expert knowledge first, then enrich with RAG tools to cite known attack patterns.
 
-Apply STRIDE to each relevant component and flow.
-Use your expert knowledge first, then enrich with RAG tools to cite known attack patterns and validate your findings.
+REMINDER: Output a single JSON object with "methodology", "threats" array, and "summary". No markdown.
 """
 
 
@@ -146,11 +141,7 @@ def run_stride_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: STRIDE Analyst.
-
-    Lee: components, data_flows, trust_boundaries, data_stores
-    Escribe: methodology_reports (append)
-    """
+    """Nodo de LangGraph: STRIDE Analyst."""
     logger.info("[STRIDE] Starting analysis...")
     human_prompt = _build_human_prompt(state)
     t0 = time.perf_counter()
@@ -160,14 +151,14 @@ def run_stride_analyst(
     logger.info("[STRIDE] LLM response (%d chars):\n%s", len(response), response)
 
     parsed = extract_json_from_response(response)
-    threats_raw = parsed.get("threats", []) if isinstance(parsed, dict) else []
+    threats_raw = find_threats_in_json(parsed) if isinstance(parsed, dict) else []
 
-    # FALLBACK: If JSON parsing failed, try markdown extraction
     if not threats_raw:
-        logger.warning(
-            "[STRIDE] JSON extraction produced 0 threats. "
-            "Attempting markdown fallback..."
-        )
+        logger.warning("[STRIDE] JSON extraction produced 0 threats. Trying individual object extraction...")
+        threats_raw = _extract_individual_json_objects(response)
+
+    if not threats_raw:
+        logger.warning("[STRIDE] Individual extraction produced 0 threats. Attempting markdown fallback...")
         threats_raw = extract_threats_from_markdown(response, "STRIDE")
 
     report = {

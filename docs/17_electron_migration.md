@@ -177,5 +177,4 @@ ollama pull qwen3.5:9b                # 6.6 GB  (for deep analysis + VLM)
 ollama pull nomic-embed-text-v2-moe   # 274 MB
 ```
 
-Note: `gemma4:26b` is NOT recommended for 16GB.
-It causes severe memory pressure and model swapping overhead.
+Note: Default **deep_thinker** is `qwen3.5:9b` (~6.6 GB, 9B), shared with STRIDE/VLM so one resident model cuts swap overhead on 8–16 GB machines. Larger MoE models are optional if VRAM allows.

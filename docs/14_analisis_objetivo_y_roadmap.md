@@ -37,7 +37,7 @@ He analizado la arquitectura, el código, el flujo de LangGraph, las habilidades
 ### E. Configuración de Modelos (El "Elefante en la Habitación")
 * **Problema Crítico:** La arquitectura está diseñada para tener un `quick_thinker` (rápido/barato para tareas simples) y un `deep_thinker` (lento/inteligente para síntesis y validación). Sin embargo, en `config.json`, **ambos apuntan exactamente al mismo modelo** (`qwen3:8b`). Esto anula por completo la ventaja de la arquitectura multi-tier. Un modelo de 8B parámetros no tiene la capacidad de razonamiento profundo necesaria para el *Threat Synthesizer* o el *DREAD Validator*.
 
-> **✅ Resuelto en v0.3.2:** Ahora hay 4 tiers diferenciados: quick=`qwen3:4b`, stride=`qwen3.5:9b`, deep=`gemma4:26b`, vlm=`qwen3.5:9b`. Además, `cli.py init` auto-configura los modelos según el RAM disponible.
+> **✅ Resuelto en v0.3.2:** Ahora hay 4 tiers diferenciados: quick=`qwen3:4b`, stride/deep/vlm=`qwen3.5:9b` (~6.6 GB, 9B). Además, `cli.py init` auto-configura los modelos según el RAM disponible.
 
 ---
 

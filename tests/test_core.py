@@ -34,7 +34,7 @@ class TestAgenticTMConfig:
     def test_default_models(self):
         config = AgenticTMConfig()
         assert config.quick_thinker.model == "qwen3:4b"
-        assert config.deep_thinker.model == "gemma4:26b"
+        assert config.deep_thinker.model == "qwen3.5:9b"
         assert config.rag.embedding_model == "nomic-embed-text-v2-moe"
 
     def test_default_pipeline(self):

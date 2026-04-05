@@ -28,12 +28,13 @@ El archivo `config.json` en la raíz del proyecto controla toda la configuració
   },
   "deep_thinker": {
     "provider": "ollama",
-    "model": "gemma4:26b",
+    "model": "qwen3.5:9b",
     "temperature": 0.2,
     "base_url": "http://localhost:11434",
     "api_key": null,
     "timeout": 600,
     "num_gpu": -1,
+    "num_ctx": 32768,
     "think": false
   },
   "stride_thinker": {
@@ -114,7 +115,7 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 | Campo | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
 | `provider` | `str` | `"ollama"` | Provider LLM: `ollama`, `anthropic`, `google`, `openai`, `azure` |
-| `model` | `str` | Varía por tier | Nombre del modelo (e.g., `qwen3:4b`, `gemma4:26b`, `claude-sonnet-4-20250514`) |
+| `model` | `str` | Varía por tier | Nombre del modelo (e.g., `qwen3:4b`, `qwen3.5:9b`, `claude-sonnet-4-20250514`) |
 | `temperature` | `float` | 0.3 (quick/stride), 0.2 (deep), 0.1 (vlm) | Temperatura de sampling (0.0 = determinístico, 1.0 = creativo) |
 | `base_url` | `str` | `"http://localhost:11434"` | URL base del provider (Ollama, Azure) |
 | `api_key` | `str \| None` | `null` | API key para providers cloud |
@@ -368,7 +369,7 @@ Se ejecuta al iniciar el servidor o CLI. Retorna warnings (no fatales) y crea di
 ```
   ✓ Ollama connected at http://localhost:11434 (5 models available)
     ✓ quick_thinker: qwen3:4b
-    ✓ deep_thinker: gemma4:26b
+    ✓ deep_thinker: qwen3.5:9b
     ✓ stride_thinker: qwen3.5:9b
     ✓ vlm: qwen3.5:9b
   ⚠ No API key configured — endpoints are unprotected
@@ -405,7 +406,7 @@ services:
 ```json
 {
   "quick_thinker": { "model": "qwen3:4b" },
-  "deep_thinker": { "model": "gemma4:26b", "num_gpu": -1 },
+  "deep_thinker": { "model": "qwen3.5:9b", "num_gpu": -1, "num_ctx": 32768 },
   "stride_thinker": { "model": "qwen3.5:9b" },
   "vlm": { "model": "qwen3.5:9b" },
   "pipeline": {
@@ -421,7 +422,7 @@ services:
 ```json
 {
   "quick_thinker": { "model": "qwen3:4b" },
-  "deep_thinker": { "model": "gemma4:26b", "num_gpu": -1 },
+  "deep_thinker": { "model": "qwen3.5:9b", "num_gpu": -1, "num_ctx": 32768 },
   "stride_thinker": { "model": "qwen3.5:9b", "num_gpu": -1 },
   "vlm": { "model": "qwen3.5:9b", "num_gpu": -1 },
   "pipeline": {

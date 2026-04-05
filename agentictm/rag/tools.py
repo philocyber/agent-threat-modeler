@@ -69,6 +69,7 @@ def rag_query_risks(query: str) -> str:
     Útil para encontrar patrones de ataque, debilidades y controles de seguridad.
     Los resultados se filtran por las categorías activas del proyecto (AWS, AI, etc.)."""
     import logging as _logging
+    import re as _re
     _log = _logging.getLogger(__name__)
     raw = _get_manager().query("risks_mitigations", query, top_k=8)
     # Apply category filtering if active categories are set
@@ -79,7 +80,6 @@ def rag_query_risks(query: str) -> str:
             active_kws.update(CATEGORY_KEYWORDS.get(cat, []))
         active_kws.add("base")  # always include base
         if active_kws:
-            # Filter: keep sections that have at least one keyword match
             sections = raw.split("\n\n" + "\u2500" * 40 + "\n\n")
             filtered = []
             for sec in sections:
@@ -88,8 +88,13 @@ def rag_query_risks(query: str) -> str:
                     filtered.append(sec)
             if filtered:
                 _log.debug("RAG risks filter: %d/%d sections matched active categories", len(filtered), len(sections))
-                return ("\n\n" + "\u2500" * 40 + "\n\n").join(filtered) + _CITATION_INSTRUCTION
-    return raw + _CITATION_INSTRUCTION
+                raw = ("\n\n" + "\u2500" * 40 + "\n\n").join(filtered)
+
+    cleaned = _re.sub(r"TMA-[0-9A-Fa-f]{4},", "", raw)
+    cleaned = _re.sub(r",Control,No,", " [Control]: ", cleaned)
+    cleaned = _re.sub(r",Amenaza,No,", " [Amenaza]: ", cleaned)
+
+    return cleaned + _CITATION_INSTRUCTION
 
 
 @tool

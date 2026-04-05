@@ -382,8 +382,8 @@ Esto significa que si un analista individual falla (e.g., timeout de Ollama), el
 | AI Threat Analyst | `quick_json` | Quick JSON | qwen3:4b | Análisis AI/Agéntico |
 | Red Team | `stride` | Stride (free-text) | qwen3.5:9b | Debate adversarial |
 | Blue Team | `stride` | Stride (free-text) | qwen3.5:9b | Debate adversarial |
-| Attack Tree (enriched) | `deep_json` | Deep JSON | gemma4:26b | 2da pasada con contexto completo |
-| Threat Synthesizer | `deep_json` | Deep JSON | gemma4:26b | Síntesis de 15+ amenazas |
+| Attack Tree (enriched) | `deep_json` | Deep JSON | qwen3.5:9b | 2da pasada con contexto completo |
+| Threat Synthesizer | `deep_json` | Deep JSON | qwen3.5:9b | Síntesis de 15+ amenazas |
 | DREAD Validator | `quick_json` | Quick JSON | qwen3:4b | Scoring rápido |
 | Output Localizer | `quick_json` | Quick JSON | qwen3:4b | Traducción rápida |
 | Report Generator | *(ninguno)* | — | — | Código puro, sin LLM |

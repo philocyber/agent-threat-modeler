@@ -54,8 +54,12 @@ def _extract_debate_threats(response: str, team: str, round_num: int) -> list:
         return []
 
     if isinstance(parsed, list):
-        logger.info("[%s] Round %d: %d structured assessments extracted (top-level list)", team, round_num, len(parsed))
-        return parsed
+        valid = [item for item in parsed if isinstance(item, dict)]
+        if valid:
+            logger.info("[%s] Round %d: %d structured assessments extracted (top-level list)", team, round_num, len(valid))
+            return valid
+        logger.info("[%s] Round %d: parsed list has no dict items", team, round_num)
+        return []
 
     _THREAT_ITEM_KEYS = {"id", "title", "description", "threat", "severity",
                          "likelihood", "impact", "mitigation", "action", "verdict"}
@@ -265,6 +269,9 @@ def _build_debate_history_text(state: ThreatModelState) -> str:
         if assessments:
             history_text += f"\n**Structured Assessments ({len(assessments)}):**\n"
             for ta in assessments[:30]:
+                if not isinstance(ta, dict):
+                    history_text += f"  - {str(ta)[:200]}\n"
+                    continue
                 threat_id = ta.get("threat_id", "?")
                 if side == "red":
                     action = ta.get("action", "?")

@@ -14,7 +14,7 @@ graph LR
         Q["qwen3:4b<br/>~2.7 GB VRAM<br/>Rápido, JSON"]
     end
     subgraph "Tier 2 — Deep"
-        D["gemma4:26b<br/>~10 GB VRAM<br/>MoE, largo contexto"]
+        D["qwen3.5:9b<br/>~6.6 GB VRAM<br/>9B, JSON, ctx 32K"]
     end
     subgraph "Tier 3 — Stride"
         S["qwen3.5:9b<br/>~6.6 GB VRAM<br/>Análisis estructurado"]
@@ -39,16 +39,15 @@ graph LR
 | Tier | Config Key | Modelo Default | Parámetros | VRAM | Temperatura | Propósito |
 |------|-----------|----------------|------------|------|-------------|-----------|
 | **Quick** | `quick_thinker` | `qwen3:4b` | 4B | ~2.7 GB | 0.3 | Triage rápido, JSON estructurado |
-| **Deep** | `deep_thinker` | `gemma4:26b` | 26B (MoE) | ~10 GB | 0.2 | Síntesis compleja, contexto largo (15-30K tokens) |
+| **Deep** | `deep_thinker` | `qwen3.5:9b` | 9B | ~6.6 GB | 0.2 | Síntesis compleja, JSON forzado; mismo peso que STRIDE (sin swap) |
 | **Stride** | `stride_thinker` | `qwen3.5:9b` | 9B | ~6.6 GB | 0.3 | Análisis STRIDE estructurado, debate |
 | **VLM** | `vlm` | `qwen3.5:9b` | 9B + visión nativa | ~6.6 GB | 0.1 | Análisis de diagramas e imágenes |
 
 ### ¿Por Qué Esta Combinación?
 
-El stack combina **Qwen3** (quick), **Qwen3.5** (stride/VLM) y **Gemma4** (deep):
+El stack combina **Qwen3** (quick) y **Qwen3.5** (stride, VLM y deep):
 - **Qwen3:4b** — rápido y ligero (~2.7 GB) para tareas de triage y JSON estructurado
-- **Qwen3.5:9b** — multimodal nativo (texto + imágenes), contexto de 256K, ideal para STRIDE/debate/VLM
-- **Gemma4:26b** — MoE con 3.8B params activos, 2.5x más rápido que modelos densos equivalentes, contexto 128-256K, ideal para síntesis profunda
+- **Qwen3.5:9b** — 9B denso (~6.6 GB), multimodal nativo (texto + imágenes), contexto de 256K; sirve para STRIDE/debate/VLM **y** síntesis profunda (`deep_thinker`), evitando recargar un modelo MoE grande en GPUs ~8 GB
 - **Modo thinking configurable** — soporte nativo de `/think` y `/nothink` (deshabilitado por defecto para velocidad)
 
 `_strip_think_tags()` en `base.py` limpia tags `<think>...</think>` del output cuando se usan modelos con modo reasoning.
@@ -161,11 +160,10 @@ En este ejemplo, los analistas rápidos corren local (Ollama), el Synthesizer us
 ```bash
 # Requeridos
 ollama pull qwen3:4b                  # Quick Thinker — ~2.7 GB download
-ollama pull qwen3.5:9b                # Stride/VLM    — ~6.6 GB download
-ollama pull gemma4:26b                # Deep Thinker  — ~10 GB download (MoE)
+ollama pull qwen3.5:9b                # Stride/VLM/Deep — ~6.6 GB download (9B)
 ollama pull nomic-embed-text-v2-moe   # Embeddings    — ~274 MB download (8K, multilingual)
 
-# Total: ~20 GB de disco
+# Total: ~10 GB de disco (chat + embeddings)
 ```
 
 ### Verificación
@@ -185,8 +183,9 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 ```json
 {
   "deep_thinker": {
-    "model": "gemma4:26b",
-    "num_gpu": -1    // -1 = todas las capas en GPU (100% VRAM)
+    "model": "qwen3.5:9b",
+    "num_gpu": -1,   // -1 = todas las capas en GPU (100% VRAM)
+    "num_ctx": 32768
   },
   "quick_thinker": {
     "model": "qwen3:4b",
@@ -211,7 +210,7 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 | VRAM | Configuración Recomendada |
 |------|---------------------------|
 | **8 GB** | `quick_thinker` = qwen3:4b, `deep_thinker` = qwen3:4b (sin diferenciación real), `max_parallel_analysts` = 1, `analyst_execution_mode` = cascade |
-| **16 GB** | `quick_thinker` = qwen3:4b, `deep_thinker` = gemma4:26b, `stride_thinker` = qwen3.5:9b, `max_parallel_analysts` = 2, `analyst_execution_mode` = hybrid |
+| **16 GB** | `quick_thinker` = qwen3:4b, `deep_thinker` = qwen3.5:9b, `stride_thinker` = qwen3.5:9b, `max_parallel_analysts` = 2, `analyst_execution_mode` = hybrid |
 | **24 GB** | Mismo que 16 GB pero con `max_parallel_analysts` = 3 |
 | **32+ GB** | Full parallel con todos los modelos diferenciados, `max_parallel_analysts` = 5 |
 
@@ -222,8 +221,8 @@ El campo `num_gpu` controla cuántas capas se cargan en GPU:
 | I | quick_json + vlm (si hay imágenes) | ~9 GB |
 | II | 2× quick_json (throttled) | ~5.4 GB |
 | III | stride | ~6.6 GB |
-| II.5 | deep_json | ~10 GB |
-| IV | deep_json → quick_json | ~10 GB → ~2.7 GB |
+| II.5 | deep_json | ~6.6 GB |
+| IV | deep_json → quick_json | ~6.6 GB → ~2.7 GB |
 | V | quick_json (localizer) | ~2.7 GB |
 
 > **Nota**: Ollama gestiona la carga/descarga de modelos automáticamente. Cuando un modelo no se usa, Ollama lo puede descargar de VRAM para hacer espacio.

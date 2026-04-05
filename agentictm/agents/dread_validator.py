@@ -30,6 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_VALID_STRIDE = frozenset({"S", "T", "R", "I", "D", "E"})
+
 # ---------------------------------------------------------------------------
 # System Prompt
 # ---------------------------------------------------------------------------
@@ -56,9 +58,18 @@ reflect the REAL impact on the specific system being analyzed.
    - High: avg >= 7.0 (total >= 35)
    - Medium: avg >= 4.0 (total >= 20)
    - Low: avg < 4.0 (total < 20)
-6. **DO NOT add new threats.** Your ONLY job is to validate and adjust scores
+6. **Validate STRIDE category**: If a threat's `stride_category` is empty or
+   clearly wrong for the described vulnerability, assign the correct STRIDE letter:
+   - **S**poofing: identity/authentication attacks (forged tokens, credential theft)
+   - **T**ampering: data/code integrity attacks (injection, modification, deserialization)
+   - **R**epudiation: audit/logging gaps (missing logs, deniability)
+   - **I**nformation Disclosure: data leaks (exposed secrets, verbose errors, sniffing)
+   - **D**enial of Service: availability attacks (DDoS, resource exhaustion, crashes)
+   - **E**levation of Privilege: access control attacks (privilege escalation, IDOR, RBAC bypass)
+   Every threat MUST have a valid single-letter stride_category in the output.
+7. **DO NOT add new threats.** Your ONLY job is to validate and adjust scores
    for the threats you receive. Output EXACTLY the same threat IDs you were given.
-7. **DO NOT merge or remove threats.** Every input threat MUST appear in your
+8. **DO NOT merge or remove threats.** Every input threat MUST appear in your
    output with its original ID. Adjust scores only — never drop, merge, or create.
 
 ## CRITICAL SCORING RULES:
@@ -357,21 +368,7 @@ def run_dread_validator(
 
     human_prompt = _build_human_prompt(state)
 
-    # Language-aware system prompt
-    _output_lang = "en"
-    if config:
-        _output_lang = config.pipeline.output_language
     effective_system_prompt = SYSTEM_PROMPT
-    if _output_lang == "es":
-        effective_system_prompt += """
-
-LANGUAGE RULE:
-The threat descriptions and mitigations you receive may be in Spanish.
-You MUST preserve the original language of all text fields (description, mitigation, attack_path).
-Write your "observations" field in Spanish when the threat text is in Spanish.
-Write your "validation_notes" in Spanish.
-Do NOT translate or rewrite text fields — only adjust DREAD numeric scores.
-"""
 
     prompt_kb = len(human_prompt) / 1024
     logger.info("[DREAD Validator] Prompt size: %.1f KB (%d threats)", prompt_kb, len(threats_final))
@@ -401,8 +398,40 @@ Do NOT translate or rewrite text fields — only adjust DREAD numeric scores.
 
     parsed = extract_json_from_response(response)
     if not isinstance(parsed, dict):
-        logger.warning("[DREAD Validator] Could not parse response, keeping original threats")
-        return {}
+        remaining_budget = DREAD_TIMEOUT - (time.perf_counter() - t0)
+        if remaining_budget > 60 and len(threats_final) > 5:
+            logger.warning(
+                "[DREAD Validator] Parse failed. Retrying with smaller batch (%d threats, %.0fs left).",
+                min(10, len(threats_final)), remaining_budget,
+            )
+            batch = threats_final[:10]
+            mini_prompt = (
+                f"## System\n{state.get('system_description', '')[:2000]}\n\n"
+                f"## Threats to Validate ({len(batch)})\n"
+            )
+            for t in batch:
+                mini_prompt += (
+                    f"- {t.get('id','?')}: {(t.get('description',''))[:200]} "
+                    f"[D={t.get('damage',5)} R={t.get('reproducibility',5)} "
+                    f"E={t.get('exploitability',5)} A={t.get('affected_users',5)} "
+                    f"Disc={t.get('discoverability',5)}]\n"
+                )
+            try:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                    retry_future = executor.submit(
+                        lambda: invoke_agent(
+                            llm, effective_system_prompt, mini_prompt,
+                            agent_name="DREAD-Retry",
+                        )
+                    )
+                    retry_resp = retry_future.result(timeout=int(remaining_budget * 0.8))
+                parsed = extract_json_from_response(retry_resp)
+            except Exception as retry_exc:
+                logger.warning("[DREAD Validator] Retry failed: %s", retry_exc)
+                parsed = None
+        if not isinstance(parsed, dict):
+            logger.warning("[DREAD Validator] Could not parse response, keeping original threats")
+            return {}
 
     validation_notes = parsed.get("validation_notes", "")
     if validation_notes:
@@ -481,6 +510,10 @@ Do NOT translate or rewrite text fields — only adjust DREAD numeric scores.
                 "priority": priority,
                 "observations": merged_obs,
             })
+            # Fill empty stride_category from LLM response
+            llm_stride = (update.get("stride_category") or "").strip().upper()
+            if llm_stride in _VALID_STRIDE and not (orig.get("stride_category") or "").strip():
+                validated["stride_category"] = llm_stride
             validated_threats.append(validated)
         else:
             validated_threats.append(dict(orig))
@@ -496,17 +529,20 @@ Do NOT translate or rewrite text fields — only adjust DREAD numeric scores.
     original_count = len(threats_final)
     new_count = len(validated_threats)
 
-    # Count score changes (orig_by_id already built above)
+    # Count score changes and stride fills (orig_by_id already built above)
     changes = 0
+    stride_filled = 0
     for t in validated_threats:
         orig = orig_by_id.get(t["id"])
         if orig and orig.get("dread_total") != t["dread_total"]:
             changes += 1
+        if orig and not (orig.get("stride_category") or "").strip() and (t.get("stride_category") or "").strip():
+            stride_filled += 1
 
     total_elapsed = time.perf_counter() - t0
     logger.info(
-        "[DREAD Validator] COMPLETED in %.1fs | threats: %d->%d | score changes: %d",
-        total_elapsed, original_count, new_count, changes,
+        "[DREAD Validator] COMPLETED in %.1fs | threats: %d->%d | score changes: %d | stride filled: %d",
+        total_elapsed, original_count, new_count, changes, stride_filled,
     )
 
     return {

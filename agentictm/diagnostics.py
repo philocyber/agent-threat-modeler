@@ -61,7 +61,7 @@ def _query_ollama(base_url: str, path: str, timeout: float = 10) -> dict | None:
 _MODEL_SIZES: dict[str, int] = {
     "qwen3:4b": int(2.7 * 1024**3),
     "qwen3.5:9b": int(6.6 * 1024**3),
-    "gemma4:26b": int(10.0 * 1024**3),
+    "qwen3.5:9b": int(6.6 * 1024**3),
 }
 
 

@@ -38,8 +38,7 @@ help: ## Show this help
 	@echo ""
 	@echo "$(_BOLD)Available models:$(_RESET)"
 	@echo "  $(_CYAN)qwen3:4b$(_RESET)     ~2.7 GB   Light  $(_GREEN)(default -- Quick Thinker)$(_RESET)"
-	@echo "  $(_CYAN)qwen3.5:9b$(_RESET)   ~6.6 GB   Standard (Stride/VLM)"
-	@echo "  $(_CYAN)gemma4:26b$(_RESET)   ~10 GB    MoE Deep Thinker (2.5x faster)"
+	@echo "  $(_CYAN)qwen3.5:9b$(_RESET)   ~6.6 GB   Stride/VLM/Deep (9B; fits ~8GB+ VRAM)"
 	@echo "  $(_CYAN)qwen3.5:14b$(_RESET)  ~9 GB     Medium"
 	@echo "  $(_CYAN)qwen3.5:27b$(_RESET)  ~17 GB    Large (legacy)"
 	@echo "  $(_CYAN)qwen3.5:72b$(_RESET)  ~45 GB    Extra large"
@@ -102,20 +101,18 @@ models: ollama-start ## Pull the selected model + embeddings (interactive)
 		echo "$(_BOLD)Which model do you want to use?$(_RESET)"; \
 		echo ""; \
 		echo "  1) qwen3:4b     ~2.7 GB   Light $(_GREEN)(default -- Quick Thinker)$(_RESET)"; \
-		echo "  2) qwen3.5:9b   ~6.6 GB   Standard (Stride/VLM)"; \
-		echo "  3) gemma4:26b   ~10 GB    MoE Deep Thinker"; \
-		echo "  4) qwen3.5:14b  ~9 GB     Medium"; \
-		echo "  5) qwen3.5:27b  ~17 GB    Large (legacy)"; \
-		echo "  6) qwen3.5:72b  ~45 GB    Extra large"; \
+		echo "  2) qwen3.5:9b   ~6.6 GB   Stride/VLM/Deep (9B)"; \
+		echo "  3) qwen3.5:14b  ~9 GB     Medium"; \
+		echo "  4) qwen3.5:27b  ~17 GB    Large (legacy)"; \
+		echo "  5) qwen3.5:72b  ~45 GB    Extra large"; \
 		echo ""; \
-		printf "  Choose [1-6] (default: 1): "; \
+		printf "  Choose [1-5] (default: 1): "; \
 		read choice; \
 		case "$$choice" in \
 			2) selected="qwen3.5:9b" ;; \
-			3) selected="gemma4:26b" ;; \
-			4) selected="qwen3.5:14b" ;; \
-			5) selected="qwen3.5:27b" ;; \
-			6) selected="qwen3.5:72b" ;; \
+			3) selected="qwen3.5:14b" ;; \
+			4) selected="qwen3.5:27b" ;; \
+			5) selected="qwen3.5:72b" ;; \
 			*) selected="qwen3:4b" ;; \
 		esac; \
 		echo ""; \

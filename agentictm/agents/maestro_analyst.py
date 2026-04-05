@@ -82,6 +82,12 @@ If the system HAS AI components, analyze each one with MAESTRO + OWASP:
 
 EVIDENCE: Each threat MUST include at least 1 evidence_source citing where the finding comes from.
 CONFIDENCE: Rate 0.0-1.0 how certain you are this AI threat applies to THIS specific system.
+
+!!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
+- RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
+- Do NOT copy their IDs, titles, or descriptions into your output
+- Perform YOUR OWN original MAESTRO/OWASP analysis of the specific AI components
+- Use RAG only to find supporting standards for YOUR findings
 """
 
 
@@ -166,6 +172,16 @@ def _build_human_prompt(state: ThreatModelState) -> str:
     if isinstance(_sd, dict):
         _sd = json.dumps(_sd, ensure_ascii=False)
 
+    components_list = state.get("components", [])
+    arch_note = ""
+    if not components_list:
+        arch_note = (
+            "\n\nNOTE: The structured component list is empty. "
+            "The System Description above contains the FULL architecture details including AI components. "
+            "Extract AI/ML/LLM/Agentic components from the description and analyze them. "
+            "Do NOT return an empty result.\n"
+        )
+
     return f"""\
 Analyze the following system for AI/ML/Agentic-specific threats.
 
@@ -180,7 +196,7 @@ Analyze the following system for AI/ML/Agentic-specific threats.
 
 ## Scope Notes
 {state.get("scope_notes", "No notes")}
-
+{arch_note}
 Apply MAESTRO (7 layers) + OWASP Agentic Top 10 to each AI/ML/LLM/Agentic component.
 Use your expertise first, then enrich with RAG tools to cross-reference AI threat research and validate your findings.
 """

@@ -1,11 +1,11 @@
-<p align="center">
+﻿<p align="center">
   <img src="logo-philocyber.png" alt="PhiloCyber" width="120" />
 </p>
 
 <h1 align="center">AgenticTM</h1>
 
 <p align="center">
-  Multi-agent threat modeling platform with LangGraph orchestration and local LLM support.
+  <strong>Multi-agent threat modeling platform with LangGraph orchestration and local LLM support.</strong>
 </p>
 
 <p align="center">
@@ -16,13 +16,37 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-A874C0" alt="License MIT" /></a>
 </p>
 
+<p align="center">
+  <img src="agenticTM.gif" alt="AgenticTM — end-to-end threat modeling pipeline dataflow" width="860" />
+</p>
+
+<p align="center">
+  <em>Full pipeline dataflow: from architecture input to prioritized threat report, across 6 phases and 14 specialized agents.</em>
+</p>
+
+---
+
+## Table of Contents
+
+- [What is AgenticTM?](#what-is-agentictm)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Quick Start](#quick-start)
+- [Configuration](#configuration)
+- [Knowledge Base and RAG](#knowledge-base-and-rag)
+- [Usage](#usage)
+- [Outputs](#outputs)
+- [Development](#development)
+- [Troubleshooting](#troubleshooting)
+- [License](#license)
+
 ---
 
 ## What is AgenticTM?
 
-AgenticTM is an open-source, multi-agent system that performs end-to-end threat modeling on software architectures. It ingests system descriptions (text, Mermaid diagrams, Draw.io files, or architecture images), runs them through a coordinated pipeline of specialized AI agents, and produces prioritized threat reports with STRIDE classification and DREAD scoring.
+AgenticTM is an open-source, multi-agent system that performs **end-to-end threat modeling** on software architectures. Drop in a system description — plain text, Mermaid diagram, Draw.io file, or architecture image — and a coordinated pipeline of specialized AI agents produces a prioritized threat report with STRIDE classification and DREAD scoring.
 
-The platform is **local-first** -- it runs entirely on your machine using [Ollama](https://ollama.com/) with no data leaving your network -- while also supporting cloud LLM providers (OpenAI, Anthropic, Google) when needed.
+The platform is **local-first**: it runs entirely on your machine using [Ollama](https://ollama.com/) with no data leaving your network. Cloud LLM providers (OpenAI, Anthropic, Google) are also supported when needed.
 
 Built and maintained by [PhiloCyber](https://philocyber.com).
 
@@ -30,19 +54,23 @@ Built and maintained by [PhiloCyber](https://philocyber.com).
 
 ## Features
 
-- **6-phase, 14-node analysis pipeline** -- architecture parsing, multi-methodology threat analysis, adversarial debate, synthesis, validation, and reporting
-- **Multiple threat methodologies** -- STRIDE, PASTA, Attack Trees, MAESTRO (AI systems), and dedicated AI/ML threat analysis
-- **Adversarial Red Team / Blue Team debate** with automatic convergence detection
-- **DREAD scoring and validation** with asymmetric, realistic score distribution
-- **RAG-enhanced analysis** -- retrieves context from security books, research papers, previous threat models, and AI threat databases
-- **Three execution modes** -- `cascade`, `parallel`, or `hybrid` analyst orchestration
-- **Web UI, REST API, and CLI** -- choose how you interact
-- **Electron desktop app** for native macOS/Windows/Linux experience
-- **Fully local** with Ollama, or connect to cloud providers
+| Capability | Description |
+|---|---|
+| **6-phase, 14-node pipeline** | Architecture parsing → multi-methodology analysis → adversarial debate → synthesis → validation → reporting |
+| **5 threat methodologies** | STRIDE, PASTA, Attack Trees, MAESTRO (AI systems), and dedicated AI/ML threat analysis |
+| **Red Team ↔ Blue Team debate** | Adversarial rounds with automatic convergence detection |
+| **DREAD scoring** | Asymmetric, realistic score distribution with validation |
+| **RAG-enhanced analysis** | Security books, research papers, past threat models, and AI threat databases |
+| **Three execution modes** | `cascade`, `parallel`, or `hybrid` analyst orchestration |
+| **Multiple interfaces** | Web UI, REST API, and CLI |
+| **Electron desktop app** | Native macOS / Windows / Linux experience |
+| **Fully local or cloud** | Ollama for privacy-first use; OpenAI / Anthropic / Google when needed |
 
 ---
 
 ## Architecture
+
+The pipeline runs in six sequential phases, each handled by one or more dedicated agents:
 
 ```text
 Phase I     Architecture Parser (text + optional VLM for images)
@@ -54,17 +82,23 @@ Phase IV    Threat Synthesizer -> DREAD Validator
 Phase V     Output Localizer -> Report Generator
 ```
 
-For detailed documentation, see the [docs/](docs/) directory:
-- [Pipeline architecture](docs/03_arquitectura_pipeline.md)
-- [Agent details](docs/04_agentes.md)
-- [RAG system](docs/05_sistema_rag.md)
-- [Configuration reference](docs/08_configuracion.md)
+<details>
+<summary>Detailed documentation</summary>
+
+| Document | Contents |
+|---|---|
+| [Pipeline architecture](docs/03_arquitectura_pipeline.md) | Phase-by-phase breakdown, state flow, conditional edges |
+| [Agent details](docs/04_agentes.md) | Per-agent prompts, inputs, outputs, and dependencies |
+| [RAG system](docs/05_sistema_rag.md) | Indexing strategy, retrievers, knowledge base layout |
+| [Configuration reference](docs/08_configuracion.md) | All config keys, types, and defaults |
+
+</details>
 
 ---
 
 ## Quick Start
 
-### Option A: One-liner with Make (macOS)
+### Option A — One-liner with Make (macOS)
 
 ```bash
 git clone https://github.com/PhiloCyber/agent-threat-modeler.git
@@ -73,12 +107,15 @@ make setup    # installs Ollama, pulls models, creates venv, installs deps, inde
 make run      # starts the server at http://localhost:8000
 ```
 
-### Option B: Manual setup (all platforms)
+### Option B — Manual setup (all platforms)
+
+<details>
+<summary>Step-by-step instructions</summary>
 
 #### 1. Prerequisites
 
-- **Python 3.11+** ([python.org](https://www.python.org/downloads/))
-- **Ollama** -- the local LLM runtime (not a pip package, installed at the system level)
+- **Python 3.11+** — [python.org](https://www.python.org/downloads/)
+- **Ollama** — the local LLM runtime (system-level binary, not a pip package)
 
 Install Ollama:
 
@@ -91,8 +128,7 @@ brew services start ollama
 curl -fsSL https://ollama.com/install.sh | sh
 systemctl start ollama    # or: ollama serve
 
-# Windows
-# Download from https://ollama.com/download
+# Windows — download from https://ollama.com/download
 ```
 
 Verify Ollama is running:
@@ -105,9 +141,8 @@ curl http://localhost:11434/api/tags
 
 ```bash
 # Chat models
-ollama pull qwen3:4b         # ~2.7 GB, Quick Thinker (fast scans)
-ollama pull qwen3.5:9b       # ~6.6 GB, Stride/VLM (multimodal, STRIDE/debate)
-ollama pull gemma4:26b       # ~10 GB, Deep Thinker (MoE, synthesis)
+ollama pull qwen3:4b         # ~2.7 GB  — Quick Thinker (fast scans)
+ollama pull qwen3.5:9b       # ~6.6 GB  — Deep + Stride/VLM (9B; synthesis shares weights with STRIDE)
 
 # Embedding model for RAG (required)
 ollama pull nomic-embed-text-v2-moe   # 8K context, multilingual MoE
@@ -118,8 +153,8 @@ ollama pull nomic-embed-text-v2-moe   # 8K context, multilingual MoE
 | RAM | Recommended config | Models |
 |-----|-------------------|--------|
 | 8 GB | Single model for all tiers | `qwen3:4b` |
-| 16 GB | Quick + Stride/VLM | `qwen3:4b` + `qwen3.5:9b` |
-| 32 GB | Full differentiated stack | `qwen3:4b` + `qwen3.5:9b` + `gemma4:26b` |
+| 16 GB | Full stack | `qwen3:4b` + `qwen3.5:9b` |
+| 32 GB | Full stack, max parallelism | `qwen3:4b` + `qwen3.5:9b` |
 | 64 GB+ | Full stack, max parallelism | All models, `max_parallel_analysts: 5` |
 
 #### 3. Clone and install
@@ -130,7 +165,7 @@ cd agent-threat-modeler
 
 python -m venv .venv
 source .venv/bin/activate    # Linux/macOS
-.venv\Scripts\activate     # Windows
+.venv\Scripts\activate       # Windows
 
 pip install -r requirements.txt
 ```
@@ -150,7 +185,9 @@ python run.py
 
 Open [http://localhost:8000](http://localhost:8000) in your browser.
 
-### Option C: Docker
+</details>
+
+### Option C — Docker
 
 ```bash
 git clone https://github.com/PhiloCyber/agent-threat-modeler.git
@@ -160,7 +197,8 @@ docker compose up
 
 This starts both the Ollama service and the AgenticTM API. The UI is available at `http://localhost:8000`.
 
-> **Note:** You still need to pull models inside the Ollama container:
+> [!NOTE]
+> You still need to pull models inside the Ollama container after first launch:
 > ```bash
 > docker exec -it agent-threat-modeler-ollama-1 ollama pull qwen3:4b
 > docker exec -it agent-threat-modeler-ollama-1 ollama pull nomic-embed-text-v2-moe
@@ -193,6 +231,9 @@ cp config.json.example config.json
 
 ### Environment variables
 
+<details>
+<summary>All supported environment variables</summary>
+
 All settings can be overridden via environment variables:
 
 | Variable | Description | Default |
@@ -207,6 +248,8 @@ All settings can be overridden via environment variables:
 | `AGENTICTM_LOG_JSON` | Enable JSON-formatted logging | `false` |
 | `AGENTICTM_HOST` | Server bind address | `127.0.0.1` |
 | `AGENTICTM_CORS_ORIGINS` | Comma-separated allowed CORS origins | none |
+
+</details>
 
 ---
 
@@ -230,19 +273,18 @@ knowledge_base/
 ### Adding your own documents
 
 1. Place PDF, Markdown, CSV, or JSON files into the appropriate subdirectory under `knowledge_base/`
-2. Re-index manually if you want to pre-build everything up front:
+2. Re-index:
 
 ```bash
 python cli.py index
-
-# or with Make:
+# or:
 make index
 ```
 
-The indexer uses incremental hashing -- only new or changed files are re-indexed.
-Analysis runs also auto-check for knowledge-base changes and incrementally re-index only what changed.
+The indexer uses incremental hashing — only new or changed files are re-indexed. Analysis runs also auto-check for knowledge-base changes and re-index only what changed.
 
-> **Public repo hygiene:** keep customer threat models, generated `rag/` outputs, local IDE logs, and secrets out of git. The repository should contain only public sample or reference material.
+> [!IMPORTANT]
+> Keep customer threat models, generated `rag/` outputs, local IDE logs, and secrets out of git. The repository should contain only public sample or reference material.
 
 ### Supported file types
 
@@ -260,6 +302,7 @@ Analysis runs also auto-check for knowledge-base changes and incrementally re-in
 ### Web UI
 
 Navigate to `http://localhost:8000` after starting the server. The UI provides:
+
 - New analysis creation with text input, file upload, or image upload
 - Real-time progress tracking with per-agent status
 - Interactive threat results with filtering and sorting
@@ -276,7 +319,7 @@ python cli.py analyze -n "My System" -i "REST API with PostgreSQL, Redis, and JW
 # Analyze from file
 python cli.py analyze -n "My System" -f architecture.md
 
-# With specific categories and output dir
+# With specific categories and output directory
 python cli.py analyze -n "AWS App" -f desc.md --categories aws,ai,web -o ./results
 
 # Fast mode (optimized prompts, fewer debate rounds)
@@ -340,7 +383,16 @@ python run.py --reload
 make dev
 ```
 
+### Check system status
+
+```bash
+make status    # shows Python, Ollama, models, and server status
+```
+
 ### Project structure
+
+<details>
+<summary>Full directory layout</summary>
 
 ```text
 agentictm/
@@ -364,11 +416,7 @@ tests/             # Unit and integration tests
 knowledge_base/    # RAG source documents (gitignored data)
 ```
 
-### Check system status
-
-```bash
-make status    # shows Python, Ollama, models, and server status
-```
+</details>
 
 ---
 
@@ -376,13 +424,16 @@ make status    # shows Python, Ollama, models, and server status
 
 | Problem | Solution |
 |---------|----------|
-| `Connection refused` when analyzing | Ollama is not running. Start it with `brew services start ollama` (macOS) or `ollama serve` (Linux). Verify with `curl http://localhost:11434/api/tags` |
-| `ollama: command not found` | Ollama is not installed. It's a system-level binary, not a pip package. See [Prerequisites](#1-prerequisites) |
+| `Connection refused` when analyzing | Ollama is not running. Start it: `brew services start ollama` (macOS) or `ollama serve` (Linux). Verify with `curl http://localhost:11434/api/tags` |
+| `ollama: command not found` | Ollama is not installed — it's a system-level binary, not a pip package. See [Prerequisites](#1-prerequisites) |
 | `model not found` | The model hasn't been pulled. Run `ollama pull <model>` (e.g., `ollama pull qwen3:4b`) |
-| Analysis is slow | Use `cascade` mode with a smaller model, or try `hybrid` with `max_parallel_analysts: 2` |
+| Analysis is slow | Use `cascade` mode with a smaller model, or `hybrid` with `max_parallel_analysts: 2` |
 | No RAG context in results | Run `python cli.py index` after adding documents to `knowledge_base/` |
-| Port 8000 already in use | Kill the existing process: `lsof -ti :8000 \| xargs kill -9`, or use `python run.py --port 8001` |
-| Empty threat list from synthesizer | Check that the LLM model is properly loaded. Try a simpler analysis first to verify connectivity |
+| Port 8000 already in use | Kill the process: `lsof -ti :8000 \| xargs kill -9`, or start on another port with `python run.py --port 8001` |
+| Empty threat list from synthesizer | Verify the LLM model is loaded. Run a simpler analysis first to confirm Ollama connectivity |
+
+> [!TIP]
+> Run `make status` to get a full diagnostic snapshot: Python version, Ollama status, loaded models, and server health in one command.
 
 ---
 
@@ -394,6 +445,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Acknowledgments
 
-AgenticTM is built and maintained by [PhiloCyber](https://philocyber.com) -- a cybersecurity and AI security practice focused on practical, research-backed approaches to application security.
+AgenticTM is built and maintained by [PhiloCyber](https://philocyber.com) — a cybersecurity and AI security practice focused on practical, research-backed approaches to application security.
 
 Built with [LangChain](https://langchain.com/), [LangGraph](https://github.com/langchain-ai/langgraph), [Ollama](https://ollama.com/), [FastAPI](https://fastapi.tiangolo.com/), and [ChromaDB](https://www.trychroma.com/).

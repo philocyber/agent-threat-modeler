@@ -91,7 +91,7 @@ ollama run qwen3:4b "test"
 > `qwen3:4b` para todo. La calidad baja pero el pipeline funciona end-to-end.
 
 **¿Por qué esta combinación de modelos?**
-> Qwen3:4b es rápido y ligero para triage. Qwen3.5:9b es nativamente multimodal (texto + imágenes) para STRIDE/debate/VLM. Gemma4:26b es un modelo MoE con solo 3.8B params activos, 2.5x más rápido que modelos densos equivalentes, ideal para síntesis profunda.
+> Qwen3:4b es rápido y ligero para triage. Qwen3.5:9b (9B, ~6.6 GB) es multimodal (texto + imágenes) para STRIDE/debate/VLM y además alimenta el **deep_thinker** (síntesis, árbol enriquecido): un solo peso en VRAM evita swaps y encaja mejor en GPUs ~8 GB que stacks MoE grandes (~14 GB).
 
 **¿Puedo usar Llama, Mistral u otros modelos?**
 > Sí, cualquier modelo disponible en Ollama funciona. Los prompts están diseñados para modelos instruction-following genéricos.
@@ -153,7 +153,7 @@ ollama run qwen3:4b "test"
 3. **Indexar knowledge base** — mejora mitigaciones con contexto real
 4. **Usar categorías específicas** — `aws,ai,web` es mejor que `auto` si conocés tu stack
 5. **Aumentar debate rounds** a 6-8 para análisis profundos
-6. **Usar deep_thinker diferenciado** — gemma4:26b o un modelo cloud para el Synthesizer
+6. **Usar deep_thinker adecuado** — `qwen3.5:9b` local (default) o un modelo cloud más grande si necesitás máxima calidad en síntesis
 
 ### Monitorear Recursos
 

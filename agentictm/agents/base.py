@@ -261,6 +261,12 @@ def _invoke_tools_into_prompt(
     rag_sections: list[str] = []
     accumulated_rag_chars = 0
 
+    _CITATION_STRIP = re.compile(
+        r"\n{0,3}-{3,}\n"
+        r"IMPORTANT:.*?evidence_sources.*?\"<relevant quote>\"\}\n?",
+        re.DOTALL,
+    )
+
     for tool in tools:
         tool_name = getattr(tool, "name", str(tool))
 
@@ -279,12 +285,12 @@ def _invoke_tools_into_prompt(
             result = tool.invoke({"query": query})
             elapsed = time.perf_counter() - t0
             result_str = str(result).strip()
+            result_str = _CITATION_STRIP.sub("", result_str).strip()
             if result_str and len(result_str) > 20:
-                # Truncate to avoid overwhelming the context
                 if len(result_str) > 10000:
                     result_str = result_str[:10000] + "\n... [truncated]"
                 rag_sections.append(f"### {tool_name}\n{result_str}")
-                accumulated_rag_chars += len(rag_sections[-1]) + 2  # +2 for separator
+                accumulated_rag_chars += len(rag_sections[-1]) + 2
                 logger.info(
                     "%sPre-invoked RAG tool '%s' in %.1fs -> %d chars",
                     prefix, tool_name, elapsed, len(result_str),
@@ -296,7 +302,11 @@ def _invoke_tools_into_prompt(
 
     if rag_sections:
         rag_block = (
-            "\n\n## Enrichment Material (from knowledge base — cross-reference with your own expertise for a comprehensive analysis)\n"
+            "\n\n---\n"
+            "## REFERENCE MATERIAL (from knowledge base)\n"
+            "Use these sources as background context ONLY. "
+            "Do NOT copy entries, IDs (TMA-xxxx), or formats from these results. "
+            "Your output MUST follow the JSON schema described above, NOT the format of these references.\n\n"
             + "\n\n".join(rag_sections)
         )
         human_prompt = human_prompt + "\n" + rag_block
@@ -733,9 +743,10 @@ def _fix_common_json_issues(s: str) -> str:
     """Fix common LLM JSON generation issues.
 
     Handles trailing commas, JS-style comments, unquoted keys, unquoted
-    simple-word values, missing commas between adjacent objects, and
-    ``key: value`` pairs where the value is an unquoted identifier (common
-    VLM output like ``id: CloudFront``).
+    simple-word values, missing commas between adjacent objects,
+    orphaned bare strings inside objects, and ``key: value`` pairs where
+    the value is an unquoted identifier (common VLM output like
+    ``id: CloudFront``).
     """
     # Remove trailing commas before } or ]
     s = re.sub(r",\s*([}\]])", r"\1", s)
@@ -743,6 +754,9 @@ def _fix_common_json_issues(s: str) -> str:
     s = re.sub(r"//[^\n]*", "", s)
     # Remove C-style block comments
     s = re.sub(r"/\*.*?\*/", "", s, flags=re.DOTALL)
+    # Remove orphaned bare strings inside objects (LLM hallucination artifacts):
+    # "key1": "val1", "orphan string", "key2": "val2"  ->  "key1": "val1", "key2": "val2"
+    s = re.sub(r'(?<="),\s*"[^"]{0,200}"\s*(?=,\s*"[^"]*"\s*:)', ',', s)
     # Fix unquoted keys (simple cases): {key: ... or ,key: ...
     s = re.sub(r"(?<=[{,])\s*(\w+)\s*:", r' "\1":', s)
     # Fix unquoted string values: "key": SomeWord  ->  "key": "SomeWord"
@@ -760,11 +774,10 @@ def _fix_common_json_issues(s: str) -> str:
 def _repair_truncated_json(s: str) -> str | None:
     """Attempt to repair JSON truncated by LLM token limits.
 
-    Finds the last complete object in a ``{"key": [...]}`` structure
-    and closes the array/object brackets.
+    Walks through the string tracking brace depth and finds the last
+    complete ``}`` at any depth above 0. Truncates there and closes
+    all remaining open brackets/braces.
     """
-    # Find the last complete }, (end of array element) or }] (end of array)
-    # Walk backwards to find the last "}" that closes a complete array item
     last_good = -1
     depth = 0
     in_string = False
@@ -785,38 +798,134 @@ def _repair_truncated_json(s: str) -> str | None:
             depth += 1
         elif ch == '}':
             depth -= 1
-            if depth == 1:
-                # We just closed an item inside the top-level object
+            if depth >= 1:
                 last_good = i
     if last_good > 0:
         truncated = s[:last_good + 1]
-        # Close any open array and object brackets
         open_brackets = truncated.count('[') - truncated.count(']')
         open_braces = truncated.count('{') - truncated.count('}')
-        repair = truncated + (']' * open_brackets) + ('}' * open_braces)
+        repair = truncated + (']' * max(0, open_brackets)) + ('}' * max(0, open_braces))
         return repair
     return None
 
 
 def _try_parse(s: str) -> dict | list | None:
     """Try parsing a string as JSON, with and without fixes."""
-    for candidate_str in [s, _fix_common_json_issues(s)]:
+    for label, candidate_str in [("raw", s), ("fixed", _fix_common_json_issues(s))]:
         try:
             return json.loads(candidate_str)
-        except json.JSONDecodeError:
-            pass
-    # Last resort: try repairing truncated JSON
+        except json.JSONDecodeError as e:
+            logger.debug("[JSON parse] %s attempt failed: %s (pos %d)", label, e.msg, e.pos)
+    # Try repairing truncated JSON
     repaired = _repair_truncated_json(s)
     if repaired:
-        try:
-            return json.loads(repaired)
-        except json.JSONDecodeError:
-            repaired2 = _fix_common_json_issues(repaired)
+        for label, candidate_str in [("repaired", repaired), ("repaired+fixed", _fix_common_json_issues(repaired))]:
             try:
-                return json.loads(repaired2)
-            except json.JSONDecodeError:
-                pass
+                return json.loads(candidate_str)
+            except json.JSONDecodeError as e:
+                logger.debug("[JSON parse] %s attempt failed: %s (pos %d)", label, e.msg, e.pos)
+    # Last resort: use json-repair library for broken keys/values
+    try:
+        from json_repair import repair_json
+        fixed = repair_json(s, return_objects=True)
+        if isinstance(fixed, (dict, list)):
+            logger.info("[JSON parse] json-repair library succeeded")
+            return fixed
+    except Exception as exc:
+        logger.debug("[JSON parse] json-repair failed: %s", exc)
     return None
+
+
+def _extract_individual_json_objects(text: str) -> list[dict]:
+    """Last-resort extraction: find individual JSON objects in malformed text.
+
+    When the outer JSON structure is broken (truncated, malformed keys, etc.),
+    this finds all complete {...} blocks that look like threat entries.
+    """
+    threat_keys = {"id", "title", "description", "name", "component",
+                   "leaf_action", "stride_category", "attack_scenario",
+                   "severity", "impact", "mitigation"}
+    results: list[dict] = []
+    depth = 0
+    in_string = False
+    escape = False
+    obj_start = -1
+
+    for i, ch in enumerate(text):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            if depth == 2:
+                obj_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 2 and obj_start >= 0:
+                candidate = text[obj_start:i + 1]
+                try:
+                    obj = json.loads(candidate)
+                    if isinstance(obj, dict) and (set(obj.keys()) & threat_keys):
+                        results.append(obj)
+                except json.JSONDecodeError:
+                    fixed = _fix_common_json_issues(candidate)
+                    try:
+                        obj = json.loads(fixed)
+                        if isinstance(obj, dict) and (set(obj.keys()) & threat_keys):
+                            results.append(obj)
+                    except json.JSONDecodeError:
+                        pass
+                obj_start = -1
+
+    # If depth=2 didn't work (flat structure), try depth=1
+    if not results:
+        depth = 0
+        in_string = False
+        escape = False
+        obj_start = -1
+        for i, ch in enumerate(text):
+            if escape:
+                escape = False
+                continue
+            if ch == '\\' and in_string:
+                escape = True
+                continue
+            if ch == '"' and not escape:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                if depth == 1:
+                    obj_start = i
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 1 and obj_start >= 0:
+                    candidate = text[obj_start:i + 1]
+                    try:
+                        obj = json.loads(candidate)
+                        if isinstance(obj, dict) and (set(obj.keys()) & threat_keys):
+                            results.append(obj)
+                    except json.JSONDecodeError:
+                        fixed = _fix_common_json_issues(candidate)
+                        try:
+                            obj = json.loads(fixed)
+                            if isinstance(obj, dict) and (set(obj.keys()) & threat_keys):
+                                results.append(obj)
+                        except json.JSONDecodeError:
+                            pass
+                    obj_start = -1
+
+    return results
 
 
 def extract_json_from_response(text: str | list) -> dict | list | None:
@@ -952,7 +1061,99 @@ def parse_structured_response(
 
 
 # ---------------------------------------------------------------------------
-# Markdown → structured threat extraction (fallback for non-JSON responses)
+# Generic threat-list finder for flexible JSON structures
+# ---------------------------------------------------------------------------
+
+_COMMON_THREAT_KEYS = [
+    "threats", "threat_model", "threat_assessments", "identified_threats",
+    "threat_analysis", "findings", "vulnerabilities", "attack_scenarios",
+    "assessments", "results", "analysis",
+]
+
+_THREAT_DICT_KEYS = {
+    "id", "title", "description", "threat", "severity", "component",
+    "leaf_action", "stride_category", "impact", "mitigation",
+    "name", "category", "attack_path", "confidence_score",
+}
+
+
+def _looks_like_threat_list(lst: list) -> bool:
+    """Heuristic: list of dicts with at least one threat-like key."""
+    if not lst or not isinstance(lst[0], dict):
+        return False
+    sample_keys = set(lst[0].keys())
+    return bool(sample_keys & _THREAT_DICT_KEYS)
+
+
+def find_threats_in_json(parsed: dict | None) -> list[dict]:
+    """Recursively search a parsed JSON dict for a list of threat-like dicts.
+
+    Handles varying LLM key names (threats, threat_model, findings, etc.)
+    and nested structures (e.g. attack_trees[].threats[], threat_analysis.stage_4_threats[]).
+    """
+    if not isinstance(parsed, dict):
+        return []
+
+    # 1. Check known threat key names at this level
+    for key in _COMMON_THREAT_KEYS:
+        val = parsed.get(key)
+        if isinstance(val, list) and _looks_like_threat_list(val):
+            return _ensure_descriptions(val)
+
+    # 2. Recurse into known threat key names that are dicts
+    for key in _COMMON_THREAT_KEYS:
+        val = parsed.get(key)
+        if isinstance(val, dict):
+            found = find_threats_in_json(val)
+            if found:
+                return found
+
+    # 3. Look for any list of threat-like dicts under any key
+    best: list[dict] = []
+    for _key, val in parsed.items():
+        if isinstance(val, list) and _looks_like_threat_list(val):
+            if len(val) > len(best):
+                best = val
+        elif isinstance(val, dict):
+            found = find_threats_in_json(val)
+            if found and len(found) > len(best):
+                best = found
+
+    if best:
+        return _ensure_descriptions(best)
+
+    # 4. Check for nested arrays (e.g. attack_trees[].threats[])
+    for _key, val in parsed.items():
+        if isinstance(val, list) and val and isinstance(val[0], dict):
+            collected: list[dict] = []
+            for item in val:
+                if isinstance(item, dict):
+                    sub_threats = find_threats_in_json(item)
+                    collected.extend(sub_threats)
+            if collected:
+                return _ensure_descriptions(collected)
+
+    return []
+
+
+def _ensure_descriptions(threats: list[dict]) -> list[dict]:
+    """Guarantee every threat dict has a non-empty 'description' field."""
+    _DESC_FALLBACKS = (
+        "attack_scenario", "threat", "vulnerability", "scenario",
+        "title", "name", "attack_path",
+    )
+    for t in threats:
+        if not t.get("description"):
+            for key in _DESC_FALLBACKS:
+                val = t.get(key)
+                if val and isinstance(val, str) and len(val.strip()) > 10:
+                    t["description"] = val.strip()
+                    break
+    return threats
+
+
+# ---------------------------------------------------------------------------
+# Markdown -> structured threat extraction (fallback for non-JSON responses)
 # ---------------------------------------------------------------------------
 
 def extract_threats_from_markdown(text: str, methodology: str = "Unknown") -> list[dict]:
@@ -995,8 +1196,35 @@ def extract_threats_from_markdown(text: str, methodology: str = "Unknown") -> li
         sections = re.split(r"(?:^|\n)#{3,4}\s+", cleaned)
 
     _NON_THREAT_PATTERNS = re.compile(
-        r"(?i)^(?:\*{0,2})\s*(?:evidence|conclusion|referencias|fuentes|references|mitigation\s+mapping"
-        r"|summary|resumen|contextual\s+analysis|recommended|bibliography|appendix|stage\s+[18])",
+        r"(?i)^(?:\*{0,2})\s*(?:"
+        r"evidence|conclusion|referencias|fuentes|references|mitigation\s+mapping"
+        r"|summary|resumen|contextual\s+analysis|recommended|bibliography|appendix"
+        r"|stage\s+[178]"
+        r"|attack\s+tree\s+construction|attacker\s+goals|decomposition"
+        r"|descripci[oó]n\s+general|arquitectura\s+del\s+sistema|general\s+description"
+        r"|risk\s+assessment|prioritiz|priorizaci"
+        r"|an[aá]lisis\s+stride|an[aá]lisis\s+contextual|an[aá]lisis\s+por\s+elemento"
+        r"|mapeo\s+de\s+mitigaci|mitigation\s+map"
+        r"|fuentes\s+de\s+evidencia|evidence\s+sources"
+        r"|the\s+system\s+is\s+a|el\s+sistema\s+es"
+        r"|improvements?\s+over|mejoras?\s+sobre"
+        r"|principios?\s+de\s+seguridad|estrategias?\s+de\s+mitigaci"
+        r"|security\s+principles|mitigation\s+strateg"
+        r"|recomendaciones?\s+de\s+seguridad|security\s+recommendation"
+        r"|gobernanza|governance|key\s+security"
+        r")",
+    )
+
+    _THREAT_INDICATOR_TERMS = re.compile(
+        r"(?i)\b(?:vulnerab|attack|exploit|inject|breach|unauthori"
+        r"|intercept|spoof|tamper|denial|elevat|privilege"
+        r"|exfiltrat|bypass|overflow|malicious|compromis"
+        r"|forgery|hijack|phishing|credential|brute.force"
+        r"|sensitive.data|man.in.the.middle|cross.site"
+        r"|remote.code|buffer|replay|session.?hijack|token.?leak"
+        r"|escalat|impersonat|poisoning|adversarial|dos\b|ddos"
+        r"|inyecci|suplantaci|manipulaci|denegaci|acceso\s+no\s+autoriz"
+        r"|robo\s+de|fuga\s+de|secuestro)\b"
     )
 
     for section in sections[1:] if len(sections) > 1 else []:
@@ -1005,6 +1233,12 @@ def extract_threats_from_markdown(text: str, methodology: str = "Unknown") -> li
             continue
         first_line = stripped.split("\n", 1)[0].strip().lstrip("#* ")
         if _NON_THREAT_PATTERNS.match(first_line):
+            continue
+
+        if not _THREAT_INDICATOR_TERMS.search(stripped):
+            continue
+
+        if re.search(r"\|\s*-{2,}\s*\|", stripped) and stripped.count("|") > 10:
             continue
 
         threat = _parse_markdown_threat_section(section, threat_counter, methodology)

@@ -19,7 +19,10 @@ from typing import TYPE_CHECKING
 
 import re as _re
 
-from agentictm.agents.base import invoke_agent, extract_json_from_response, extract_threats_from_markdown
+from agentictm.agents.base import (
+    invoke_agent, extract_json_from_response, extract_threats_from_markdown,
+    find_threats_in_json, _extract_individual_json_objects,
+)
 from agentictm.rag.tools import ANALYST_TOOLS
 from agentictm.state import ThreatModelState
 
@@ -175,63 +178,46 @@ def _validate_and_prune_mermaid(response: str) -> str:
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT_INITIAL = """\
-You are an attack-tree analyst specialized in hierarchical threat decomposition.
+!!! OUTPUT FORMAT: You MUST respond with a SINGLE JSON object. NO markdown, NO narrative, NO headings outside JSON. !!!
 
-An Attack Tree is a formal hierarchical representation of how a system can be attacked:
-- **Root**: attacker end-goal (e.g., "Exfiltrate customer data")
-- **Intermediate nodes**: required sub-goals (OR = any path, AND = all required)
-- **Leaves**: concrete attacker actions (e.g., "Exploit SQLi on /api/users")
+You are an attack-tree analyst. Build hierarchical threat decompositions INTERNALLY,
+then OUTPUT ONLY the JSON structure below.
 
-Your analysis must:
+Your response must be EXACTLY this JSON:
+{"methodology":"ATTACK_TREE","attack_trees":[<3 tree objects>],"summary":"<1 paragraph>"}
 
-1. Identify the TOP 3 attacker goals for this system.
-2. For each goal, build a COMPACT tree with:
-    - AND/OR decomposition
-    - concrete, SPECIFIC leaf actions (e.g. "Exploit CVE-2024-XXXX in Kong" not "Exfiltrar datos")
-    - leaf difficulty (Easy/Medium/Hard)
-3. Generate each tree as a SHORT Mermaid diagram (`graph TD`).
-4. Identify the "cheapest path" (lowest-effort sequence to achieve the goal).
-5. List EACH leaf node as a threat in the `threats` array — this is THE MOST IMPORTANT part.
-
-Use your expertise to build the trees, then enrich with RAG tools to cross-reference MITRE ATT&CK techniques.
-
-Respond with JSON:
+Each tree object:
 {
-    "methodology": "ATTACK_TREE",
-    "attack_trees": [
-        {
-            "root_goal": "Objetivo del atacante",
-            "tree_mermaid": "graph TD\\nA[Root Goal]\\nA --> B[Sub-goal 1]\\nA --> C[Sub-goal 2]\\nB --> D[Leaf Action 1]\\nC --> E[Leaf Action 2]",
-            "cheapest_path": "A -> B -> D",
-            "cheapest_path_difficulty": "Easy|Medium|Hard",
-            "threats": [
-                {
-                    "leaf_action": "Specific concrete attacker action",
-                    "component": "affected component",
-                    "difficulty": "Easy|Medium|Hard",
-                    "mitre_technique": "T1190",
-                    "description": "detailed description of how this attack works",
-                    "mitigation": "specific countermeasure or control that blocks this leaf action",
-                    "evidence_sources": [{"source_type": "rag", "source_name": "ATT&CK T1190", "excerpt": "supporting reference"}],
-                    "confidence_score": 0.85
-                }
-            ]
-        }
-    ],
-    "summary": "executive summary of attack-tree analysis"
+  "root_goal": "attacker end-goal",
+  "tree_mermaid": "graph TD\\nA[Root]\\nA --> B[Sub-goal]\\nB --> C[Leaf Action]",
+  "cheapest_path": "A -> B -> C",
+  "cheapest_path_difficulty": "Easy|Medium|Hard",
+  "threats": [
+    {
+      "leaf_action": "specific concrete attacker action (e.g. 'Exploit SQLi on /api/users')",
+      "component": "exact affected component name",
+      "difficulty": "Easy|Medium|Hard",
+      "mitre_technique": "T1190",
+      "description": "3-5 sentences: how this attack works against THIS system, naming specific components",
+      "mitigation": "specific countermeasure that blocks this action",
+      "evidence_sources": [{"source_type": "rag", "source_name": "ATT&CK T1190", "excerpt": "quote"}],
+      "confidence_score": 0.85
+    }
+  ]
 }
 
-EVIDENCE: Each leaf threat MUST include at least 1 evidence_source.
-CONFIDENCE: Rate 0.0-1.0 how certain you are this attack path is viable.
+HARD CONSTRAINTS:
+- EXACTLY 3 attack trees
+- Each tree: MAX 5 levels, MAX 20 nodes, single-letter IDs (A-Z)
+- The threats[] array is MANDATORY: 4-8 specific threats per tree
+- Each leaf must be a SPECIFIC, ACTIONABLE attack step (not "exfiltrate data")
+- Output ONLY JSON -- no markdown narrative, no stage descriptions, no conclusions
 
-!!! HARD CONSTRAINTS — VIOLATION = INVALID OUTPUT !!!
-- EXACTLY 3 attack trees, no more.
-- Each tree: MAXIMUM 5 levels deep, MAXIMUM 20 nodes total.
-- Node IDs: ONLY single uppercase letters A-Z. NEVER use two-letter IDs like AA, AB.
-- EVERY node label MUST be UNIQUE across the ENTIRE response. NEVER repeat labels like "Exfiltrar datos" or "Acceder a datos sensibles".
-- Keep Mermaid diagrams VERY SHORT (under 20 lines each).
-- The `threats` array is MANDATORY and must contain 4-8 threats per tree.
-- Focus on QUALITY over quantity: each leaf must be a SPECIFIC, ACTIONABLE attack step.
+!!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
+- RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
+- Do NOT copy their IDs, titles, or descriptions into your output
+- Build YOUR OWN attack trees from the specific system architecture
+- Use RAG only to find MITRE ATT&CK technique IDs for YOUR attack paths
 """
 
 # ---------------------------------------------------------------------------
@@ -239,74 +225,43 @@ CONFIDENCE: Rate 0.0-1.0 how certain you are this attack path is viable.
 # ---------------------------------------------------------------------------
 
 SYSTEM_PROMPT_ENRICHED = """\
-IMPORTANT: Read ALL constraints below, including the HARD CONSTRAINTS at the end.
+!!! OUTPUT FORMAT: You MUST respond with a SINGLE JSON object. NO markdown, NO narrative outside JSON. !!!
 
-You are a senior attack-tree analyst performing a SECOND-PASS ANALYSIS.
+You are a senior attack-tree analyst performing a SECOND-PASS ENRICHED analysis.
+You have ALL prior analysis (STRIDE, PASTA, MAESTRO, AI Threats, initial trees, Red/Blue debate).
 
-You have access to ALL prior security analysis outputs:
-- STRIDE per-element findings
-- PASTA risk-centric attack scenarios
-- MAESTRO AI/Agentic findings (if applicable)
-- AI Threat analysis (PLOT4ai, OWASP LLM/Agentic)
-- Initial attack trees
-- Red Team vs Blue Team debate arguments
+Combine cross-methodology insights INTERNALLY, then OUTPUT ONLY this JSON:
+{"methodology":"ATTACK_TREE_ENRICHED","attack_trees":[<5 tree objects>],"summary":"<1 paragraph>"}
 
-Your job is to build ENRICHED attack trees that combine insights across all methodologies:
-
-1. Combine STRIDE vectors with PASTA attack paths.
-2. Integrate AI-specific threats into traditional attack chains.
-3. Use Red Team arguments to add overlooked paths and chained attacks.
-4. Use Blue Team concessions to validate confirmed weaknesses.
-5. Build multi-stage attacks crossing methodology boundaries.
-6. Identify attack chains that single methodologies miss in isolation.
-
-Build the TOP 5 most dangerous trees from all evidence.
-Each tree must be more detailed than the initial pass, including:
-- cross-methodology attack paths
-- lateral movement paths from debate evidence
-- supply-chain and third-party vectors
-- difficulty re-scoring based on debate evidence
-
-Respond with JSON:
+Each tree object:
 {
-    "methodology": "ATTACK_TREE_ENRICHED",
-    "attack_trees": [
-        {
-            "root_goal": "Objetivo del atacante",
-            "tree_mermaid": "graph TD\\n...",
-            "cheapest_path": "paso1 -> paso2 -> paso3",
-            "cheapest_path_difficulty": "Easy|Medium|Hard",
-            "sources": ["Hallazgo STRIDE X", "Escenario PASTA Y", "Argumento Red Team Z"],
-            "threats": [
-                {
-                    "leaf_action": "acción concreta del atacante",
-                    "component": "componente afectado",
-                    "difficulty": "Easy|Medium|Hard",
-                    "mitre_technique": "T1190, T1078, etc.",
-                    "description": "descripción detallada",
-                    "mitigation": "contramedida específica que bloquea esta acción",
-                    "cross_reference": "Qué análisis previo identificó este vector",
-                    "evidence_sources": [{"source_type": "rag|llm_knowledge|contextual|architecture", "source_name": "e.g. ATT&CK T1190", "excerpt": "supporting reference"}],
-                    "confidence_score": 0.85
-                }
-            ]
-        }
-    ],
-    "improvements_over_initial": "Qué nuevos attack paths se encontraron combinando metodologías",
-    "summary": "executive summary of enriched attack-tree analysis"
+  "root_goal": "attacker end-goal",
+  "tree_mermaid": "graph TD\\nA[Root]\\nA --> B[Sub-goal]\\nB --> C[Leaf]",
+  "cheapest_path": "step1 -> step2 -> step3",
+  "cheapest_path_difficulty": "Easy|Medium|Hard",
+  "sources": ["STRIDE finding X", "PASTA scenario Y", "Red Team argument Z"],
+  "threats": [
+    {
+      "leaf_action": "specific attacker action",
+      "component": "affected component",
+      "difficulty": "Easy|Medium|Hard",
+      "mitre_technique": "T1190, T1078",
+      "description": "3-5 sentences: how this multi-stage attack works, naming components",
+      "mitigation": "specific countermeasure",
+      "cross_reference": "which prior analysis identified this vector",
+      "evidence_sources": [{"source_type": "rag", "source_name": "source", "excerpt": "quote"}],
+      "confidence_score": 0.85
+    }
+  ]
 }
 
-EVIDENCE: Each leaf threat MUST include at least 1 evidence_source.
-CONFIDENCE: Rate 0.0-1.0 how certain you are this enriched path is viable.
-
-!!! HARD CONSTRAINTS — VIOLATION = INVALID OUTPUT !!!
-- EXACTLY 5 enriched attack trees, no more.
-- Each tree: MAXIMUM 5 levels deep, MAXIMUM 25 nodes total.
-- Node IDs: ONLY single uppercase letters A-Z. NEVER use two-letter IDs like AA, AB.
-- EVERY node label MUST be UNIQUE across the ENTIRE response. NEVER repeat generic labels.
-- Keep Mermaid diagrams SHORT (under 25 lines each).
-- The `threats` array is MANDATORY and must contain 4-10 threats per tree.
-- Focus on SPECIFIC attack steps, not generic actions like "exfiltrate data".
+HARD CONSTRAINTS:
+- EXACTLY 5 enriched attack trees
+- Each tree: MAX 5 levels, MAX 25 nodes, single-letter IDs (A-Z)
+- threats[] is MANDATORY: 4-10 specific threats per tree
+- Cross-reference findings from multiple prior methodologies
+- Output ONLY JSON -- no markdown, no conclusions, no evidence sections outside JSON
+- Do NOT copy RAG entries (TMA-xxxx IDs) -- build original attack paths from prior findings
 """
 
 
@@ -316,9 +271,20 @@ def _build_initial_prompt(state: ThreatModelState) -> str:
     trust_boundaries = json.dumps(state.get("trust_boundaries", []), indent=2, ensure_ascii=False)
     data_stores = json.dumps(state.get("data_stores", []), indent=2, ensure_ascii=False)
 
+    components_list = state.get("components", [])
+    arch_note = ""
+    if not components_list:
+        arch_note = (
+            "\n\nNOTE: The structured component list is empty. "
+            "The System Description above contains the FULL architecture details. "
+            "Extract components and data flows from the description and build attack trees from them. "
+            "Do NOT return an empty result.\n"
+        )
+
     return f"""\
 Build attack trees for the following system.
-Think about ATTACKER GOALS and how to decompose them into steps.
+
+IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or narrative text.
 
 ## System Description
 {state.get("system_description", "Not available")}
@@ -337,11 +303,12 @@ Think about ATTACKER GOALS and how to decompose them into steps.
 
 ## Scope Notes
 {state.get("scope_notes", "No notes")}
-
-Identify the 3 most critical attack goals and build an attack tree for each.
-Generate trees in Mermaid format. MAXIMUM 20 nodes per tree, 5 levels deep, single-letter IDs only (A-Z).
-The threats[] array in each tree is THE MOST IMPORTANT part — include 4-8 specific threat entries per tree.
+{arch_note}
+Identify the 3 most critical attacker goals and build a compact attack tree for each.
+The threats[] array in each tree is THE MOST IMPORTANT part -- include 4-8 specific threat entries per tree.
 Use your expertise first, then enrich with RAG tools to cross-reference MITRE ATT&CK techniques.
+
+REMINDER: Output a single JSON object with "methodology", "attack_trees" array, and "summary". No markdown.
 """
 
 
@@ -372,6 +339,8 @@ def _build_enriched_prompt(state: ThreatModelState) -> str:
     return f"""\
 Perform ENRICHED second-pass attack tree analysis incorporating ALL prior findings.
 
+IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or narrative text.
+
 ## System Description
 {state.get("system_description", "Not available")}
 
@@ -388,10 +357,9 @@ Perform ENRICHED second-pass attack tree analysis incorporating ALL prior findin
 {debate_text if debate_text else "No debate history available."}
 
 Build 5 enriched attack trees that COMBINE insights from all methodologies.
-Find attack chains that cross methodology boundaries.
-Leverage the MITRE ATT&CK techniques already referenced by prior analysts.
-REMINDER: MAXIMUM 25 nodes per tree, 5 levels deep, single-letter IDs only (A-Z). No repetitive labels.
-The threats[] array in each tree is MANDATORY — each leaf MUST have a corresponding threat entry.
+The threats[] array in each tree is MANDATORY -- each leaf MUST have a corresponding threat entry.
+
+REMINDER: Output a single JSON object with "methodology", "attack_trees" array, and "summary". No markdown.
 """
 
 
@@ -414,21 +382,22 @@ def run_attack_tree_analyst(
     if isinstance(parsed, dict):
         for tree in parsed.get("attack_trees", []):
             threats_raw.extend(tree.get("threats", []))
+        if not threats_raw:
+            threats_raw = find_threats_in_json(parsed)
 
-    # FALLBACK 1: extract from Mermaid diagrams
+    # FALLBACK 1: individual object extraction from malformed JSON
     if not threats_raw:
-        logger.warning(
-            "[Attack Tree Initial] JSON extraction produced 0 threats. "
-            "Attempting Mermaid leaf-node fallback..."
-        )
+        logger.warning("[Attack Tree Initial] JSON extraction produced 0 threats. Trying individual object extraction...")
+        threats_raw = _extract_individual_json_objects(response)
+
+    # FALLBACK 2: extract from Mermaid diagrams
+    if not threats_raw:
+        logger.warning("[Attack Tree Initial] Trying Mermaid leaf-node fallback...")
         threats_raw = _extract_leaf_threats_from_mermaid(response)
 
-    # FALLBACK 2: extract from markdown sections (LLM returned prose)
+    # FALLBACK 3: extract from markdown sections
     if not threats_raw:
-        logger.warning(
-            "[Attack Tree Initial] Mermaid fallback produced 0 threats. "
-            "Attempting markdown fallback..."
-        )
+        logger.warning("[Attack Tree Initial] Trying markdown fallback...")
         threats_raw = extract_threats_from_markdown(response, "ATTACK_TREE")
 
     report = {
@@ -467,21 +436,22 @@ def run_attack_tree_enriched(
     if isinstance(parsed, dict):
         for tree in parsed.get("attack_trees", []):
             threats_raw.extend(tree.get("threats", []))
+        if not threats_raw:
+            threats_raw = find_threats_in_json(parsed)
 
-    # FALLBACK 1: extract from Mermaid diagrams
+    # FALLBACK 1: individual object extraction from malformed JSON
     if not threats_raw:
-        logger.warning(
-            "[Attack Tree Enriched] JSON extraction produced 0 threats. "
-            "Attempting Mermaid leaf-node fallback..."
-        )
+        logger.warning("[Attack Tree Enriched] JSON extraction produced 0 threats. Trying individual object extraction...")
+        threats_raw = _extract_individual_json_objects(response)
+
+    # FALLBACK 2: extract from Mermaid diagrams
+    if not threats_raw:
+        logger.warning("[Attack Tree Enriched] Trying Mermaid leaf-node fallback...")
         threats_raw = _extract_leaf_threats_from_mermaid(response)
 
-    # FALLBACK 2: extract from markdown sections (LLM returned prose)
+    # FALLBACK 3: extract from markdown sections
     if not threats_raw:
-        logger.warning(
-            "[Attack Tree Enriched] Mermaid fallback produced 0 threats. "
-            "Attempting markdown fallback..."
-        )
+        logger.warning("[Attack Tree Enriched] Trying markdown fallback...")
         threats_raw = extract_threats_from_markdown(response, "ATTACK_TREE_ENRICHED")
 
     report = {

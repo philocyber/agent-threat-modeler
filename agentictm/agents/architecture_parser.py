@@ -167,6 +167,74 @@ def _ensure_str(val: object) -> str:
     return str(val) if val else ""
 
 
+def _regex_extract_architecture(response: str) -> dict:
+    """Extract architecture components from semi-broken JSON via individual object parsing.
+
+    When the full JSON is malformed (broken keys from LLM token artifacts),
+    this extracts individual component/flow objects that ARE valid JSON.
+    """
+    import re as _re
+
+    result: dict = {"components": [], "data_flows": [], "trust_boundaries": [], "data_stores": [], "system_description": ""}
+
+    # Try extracting system_description via regex
+    sd_match = _re.search(r'"system_description"\s*:\s*"((?:[^"\\]|\\.)*)"', response, _re.DOTALL)
+    if sd_match:
+        result["system_description"] = sd_match.group(1).replace('\\"', '"').replace("\\n", "\n")
+
+    # Find all individual JSON objects and classify them
+    depth = 0
+    in_string = False
+    escape = False
+    start_idx = -1
+    objects: list[dict] = []
+
+    for i, ch in enumerate(response):
+        if escape:
+            escape = False
+            continue
+        if ch == '\\' and in_string:
+            escape = True
+            continue
+        if ch == '"' and not escape:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == '{':
+            if depth == 2:
+                start_idx = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 2 and start_idx >= 0:
+                snippet = response[start_idx:i + 1]
+                try:
+                    obj = json.loads(snippet)
+                    if isinstance(obj, dict):
+                        objects.append(obj)
+                except json.JSONDecodeError:
+                    try:
+                        from json_repair import repair_json
+                        obj = repair_json(snippet, return_objects=True)
+                        if isinstance(obj, dict):
+                            objects.append(obj)
+                    except Exception:
+                        pass
+                start_idx = -1
+
+    for obj in objects:
+        if "name" in obj and ("type" in obj or "technology" in obj or "description" in obj):
+            if "source" not in obj and "destination" not in obj:
+                result["components"].append(obj)
+        elif "source" in obj and "destination" in obj:
+            result["data_flows"].append(obj)
+        elif "boundary" in obj or "trust" in obj.get("name", "").lower():
+            result["trust_boundaries"].append(obj)
+
+    return result
+
+
 def _detect_input_type(raw_input: str) -> str:
     """Detecta el tipo de input: text, mermaid, image, drawio, mixed."""
     stripped = raw_input.strip()
@@ -1188,7 +1256,25 @@ def run_architecture_parser(
     parsed = extract_json_from_response(response)
     if parsed is None:
         elapsed = time.perf_counter() - phase_start
-        logger.warning("[Architecture Parser] Could not extract valid JSON in %.1fs, using raw response", elapsed)
+        logger.warning("[Architecture Parser] Could not extract valid JSON in %.1fs, trying regex component extraction", elapsed)
+        extracted = _regex_extract_architecture(response)
+        if extracted and len(extracted.get("components", [])) > 0:
+            logger.info(
+                "[Architecture Parser] Regex fallback recovered %d components, %d data_flows",
+                len(extracted.get("components", [])),
+                len(extracted.get("data_flows", [])),
+            )
+            return {
+                "input_type": input_type,
+                "system_description": extracted.get("system_description", _ensure_str(response)),
+                "components": extracted.get("components", []),
+                "data_flows": extracted.get("data_flows", []),
+                "trust_boundaries": extracted.get("trust_boundaries", []),
+                "external_entities": [],
+                "data_stores": extracted.get("data_stores", []),
+                "scope_notes": "Recovered via regex fallback from semi-broken JSON",
+            }
+        logger.warning("[Architecture Parser] Regex fallback also failed, using raw response")
         return {
             "input_type": input_type,
             "system_description": _ensure_str(response),
@@ -1201,13 +1287,48 @@ def run_architecture_parser(
         }
 
     if isinstance(parsed, dict):
-        mermaid_dfd = _generate_mermaid_dfd(parsed) if input_type != "mermaid" else raw_input
         n_comp = len(parsed.get('components', []))
         n_flows = len(parsed.get('data_flows', []))
-        elapsed = time.perf_counter() - phase_start
-
-        # -- Quality Assessment --
         quality_score, needs_clarification = _assess_architecture_quality(parsed)
+
+        # ── Retry if the parse is severely incomplete ────────────────
+        # The input clearly describes multiple components but the LLM
+        # returned too few — often happens with MoE models in nothink mode.
+        if needs_clarification and n_comp < 3 and len(raw_input) > 300:
+            logger.warning(
+                "[Architecture Parser] Low component count (%d) for %d-char input. "
+                "Retrying with explicit extraction instructions...",
+                n_comp, len(raw_input),
+            )
+            retry_prompt = (
+                f"The following system description clearly mentions multiple components, "
+                f"services, databases, and external entities. Your FIRST attempt only "
+                f"extracted {n_comp} components — this is too few.\n\n"
+                f"Re-analyze carefully and extract EVERY component, service, database, "
+                f"queue, CDN, API gateway, function, and external entity mentioned.\n\n"
+                f"System description:\n{raw_input[:30000]}"
+            )
+            try:
+                retry_response = invoke_agent(llm, SYSTEM_PROMPT, retry_prompt, agent_name="Architecture Parser")
+                retry_parsed = extract_json_from_response(retry_response)
+                if isinstance(retry_parsed, dict):
+                    retry_n = len(retry_parsed.get("components", []))
+                    if retry_n > n_comp:
+                        logger.info(
+                            "[Architecture Parser] Retry improved: %d -> %d components",
+                            n_comp, retry_n,
+                        )
+                        parsed = retry_parsed
+                        n_comp = retry_n
+                        n_flows = len(parsed.get("data_flows", []))
+                        quality_score, needs_clarification = _assess_architecture_quality(parsed)
+                    else:
+                        logger.info("[Architecture Parser] Retry did not improve (%d components)", retry_n)
+            except Exception as retry_exc:
+                logger.warning("[Architecture Parser] Retry failed: %s", retry_exc)
+
+        mermaid_dfd = _generate_mermaid_dfd(parsed) if input_type != "mermaid" else raw_input
+        elapsed = time.perf_counter() - phase_start
 
         logger.info(
             "[Architecture Parser] COMPLETED in %.1fs | components=%d | data_flows=%d | score=%d | clarification=%s",

@@ -115,12 +115,11 @@ Los agentes MAESTRO y AI Threat solo se activan si el sistema analizado contiene
 ```bash
 # Modelos que necesitás descargar
 ollama pull qwen3:4b                  # ~2.7 GB — Quick Thinker (analistas rápidos)
-ollama pull qwen3.5:9b                # ~6.6 GB — STRIDE/Debate + VLM (multimodal nativo)
-ollama pull gemma4:26b                # ~10 GB — Deep Thinker (MoE, síntesis profunda)
+ollama pull qwen3.5:9b                # ~6.6 GB — Deep + STRIDE/Debate + VLM (9B, multimodal; mismo peso para síntesis y STRIDE)
 ollama pull nomic-embed-text-v2-moe   # ~274 MB — Embeddings para RAG (8K, multilingual MoE)
 ```
 
-> ⚠️ **Nota sobre VRAM**: Con `max_parallel_analysts: 2` (default), el sistema carga como máximo 2 modelos de análisis simultáneamente. En una GPU de 16 GB, esto funciona bien con `qwen3:4b` (~2.7 GB cada uno). Qwen3.5:9b soporta **contexto de 256K** e **input multimodal nativo**; Gemma4:26b soporta **128-256K de contexto** con MoE (3.8B params activos, 2.5x más rápido).
+> ⚠️ **Nota sobre VRAM**: Con `max_parallel_analysts: 2` (default), el sistema carga como máximo 2 modelos de análisis simultáneamente. En una GPU de 16 GB, esto funciona bien con `qwen3:4b` (~2.7 GB cada uno). **Deep Thinker** usa el mismo `qwen3.5:9b` (~6.6 GB, 9B params, `num_ctx` 32768 típico) que STRIDE/VLM, así se evita el intercambio de modelos y cabe en GPUs de ~8 GB frente a stacks MoE más grandes. Qwen3.5:9b soporta **contexto de 256K** e **input multimodal nativo**.
 
 ---
 

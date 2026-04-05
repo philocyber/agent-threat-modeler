@@ -551,7 +551,7 @@ _OLLAMA_MODEL_MAP: list[tuple[float, str]] = [
     (4, "qwen3:4b"),
     (9, "qwen3.5:9b"),
     (14, "qwen3.5:14b"),
-    (26, "gemma4:26b"),
+    (9, "qwen3.5:9b"),
     (27, "qwen3.5:27b"),
     (32, "qwen3.5:32b"),
     (72, "qwen3.5:72b"),

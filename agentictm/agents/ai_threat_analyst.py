@@ -258,6 +258,11 @@ known AI attack patterns, and AI agent protocol security research.
 Your final output should be a complementary blend of both knowledge sources.
 Always provide CONCRETE, EXPLOITABLE scenarios -- not generic descriptions.
 Reference specific MITRE ATLAS techniques where applicable (AML.T0000 format).
+
+!!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
+- RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
+- Do NOT copy their IDs, titles, or descriptions verbatim into your output
+- Perform YOUR OWN original analysis for THIS specific system
 """
 
 
@@ -401,6 +406,16 @@ and cross-protocol confusion risks. Evaluate lifecycle vulnerabilities.
 
     _sd = _to_str(state.get("system_description", "Not available"))
 
+    components_list = state.get("components", [])
+    arch_note = ""
+    if not components_list:
+        arch_note = (
+            "\n\nNOTE: The structured component list is empty. "
+            "The System Description above contains the FULL architecture details including AI components. "
+            "Extract AI/ML/LLM/Agentic components from the description and analyze them. "
+            "Do NOT return an empty result.\n"
+        )
+
     return f"""\
 Analyze the following system for AI/ML/Agentic-specific threats.
 
@@ -418,7 +433,7 @@ Analyze the following system for AI/ML/Agentic-specific threats.
 
 ## Scope Notes
 {state.get("scope_notes", "No notes")}
-
+{arch_note}
 ## Active Threat Categories
 {", ".join(categories)}
 {"AI category is ACTIVE -- perform deep multi-framework analysis including WEI/RPS/VR metrics." if has_ai_category else ""}

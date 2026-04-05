@@ -129,7 +129,7 @@ class AgenticTM:
         _model_sizes_gb = {
             "qwen3:4b": 2.7,
             "qwen3.5:9b": 6.6,
-            "gemma4:26b": 10.0,
+            "qwen3.5:9b": 6.6,
         }
         for role, model in ollama_models.items():
             size_gb = _model_sizes_gb.get(model)

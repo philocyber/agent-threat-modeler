@@ -66,8 +66,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 
 # Descargar modelos (puede tardar según la conexión)
 ollama pull qwen3:4b                  # Quick Thinker — ~2.7 GB
-ollama pull gemma4:26b                # Deep Thinker — ~10 GB (MoE)
-ollama pull qwen3.5:9b                # STRIDE/Debate/VLM — ~6 GB
+ollama pull qwen3.5:9b                # Deep + STRIDE/Debate/VLM — ~6.6 GB (9B)
 ollama pull nomic-embed-text-v2-moe   # Embeddings — ~274 MB (8K, multilingual)
 
 # Verificar
@@ -430,7 +429,6 @@ docker exec -it agentictm-ollama-1 bash
 
 # Dentro del contenedor:
 ollama pull qwen3:4b
-ollama pull gemma4:26b
 ollama pull qwen3.5:9b
 ollama pull nomic-embed-text-v2-moe
 ```

@@ -17,18 +17,18 @@ _config_logger = logging.getLogger(__name__)
 class LLMConfig(BaseModel):
     """Configuración de un proveedor LLM.
 
-    Modelos recomendados para Ollama (16-32 GB VRAM):
+    Modelos recomendados para Ollama (16 GB RAM):
     ┌────────────────┬────────────────────────────┬───────┬──────────────────────────────────┐
     │ Rol            │ Modelo                     │  VRAM │ Notas                            │
     ├────────────────┼────────────────────────────┼───────┼──────────────────────────────────┤
     │ quick_thinker  │ qwen3:4b                   │ ~2.7GB│ Fast analysts (PASTA/AT/MAESTRO) │
-    │ deep_thinker   │ gemma4:26b                 │ ~10GB │ Parser + Synthesizer (MoE 3.8B)  │
+    │ deep_thinker   │ qwen3.5:9b                 │ ~6.6GB│ Synthesizer (32K ctx, temp=0.2)  │
     │ stride_thinker │ qwen3.5:9b                 │ ~6.6GB│ STRIDE/debate (structured)       │
     │ vlm            │ qwen3.5:9b                 │ ~6.6GB│ Native multimodal (text+image)   │
     └────────────────┴────────────────────────────┴───────┴──────────────────────────────────┘
 
-    Qwen3.5:9b supports 256K context and native text+image input.
-    Gemma4:26b is a MoE model (3.8B active params) -- 2.5x faster, lower VRAM.
+    Qwen3.5:9b supports 256K context, native text+image input, and structured JSON.
+    Shared model between deep/stride/vlm — zero swap overhead, fits 100% in GPU.
     """
 
     provider: str = "ollama"
@@ -180,16 +180,18 @@ class AgenticTMConfig(BaseModel):
     quick_thinker: LLMConfig = Field(
         default_factory=lambda: LLMConfig(
             model="qwen3:4b",
+            num_ctx=16384,  # qwen3 supports 128K; 16K suffices for analyst prompts
             think=False,  # nothink -> faster, cleaner JSON, forces RAG pre-invoke
         )
     )
     deep_thinker: LLMConfig = Field(
         default_factory=lambda: LLMConfig(
-            model="gemma4:26b",
+            model="qwen3.5:9b",
             temperature=0.2,
             timeout=600,
             num_gpu=-1,
-            think=False,  # gemma4 MoE -- 2.5x faster than qwen3.5:27b, lower VRAM
+            num_ctx=16384,  # 16K keeps KV cache small → 100% GPU on 8GB VRAM
+            think=False,  # nothink → faster, cleaner JSON output
         )
     )
     stride_thinker: LLMConfig = Field(
@@ -198,6 +200,7 @@ class AgenticTMConfig(BaseModel):
             temperature=0.3,
             timeout=600,
             num_gpu=-1,
+            num_ctx=16384,  # 16K keeps KV cache small → 100% GPU on 8GB VRAM
             think=False,  # nothink → faster, forces RAG pre-invoke
         )
     )
@@ -228,8 +231,8 @@ class AgenticTMConfig(BaseModel):
         |----------|---------------|----------------|---------------|--------------|
         | <=16 GB  | qwen3:4b      | qwen3:4b       | qwen3:4b      | qwen3:4b     |
         | 16-32 GB | qwen3.5:9b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
-        | 32-64 GB | gemma4:26b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
-        | 64+ GB   | gemma4:26b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
+        | 32-64 GB | qwen3.5:9b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
+        | 64+ GB   | qwen3.5:9b    | qwen3.5:9b     | qwen3:4b      | qwen3.5:9b   |
         """
         ram_gb = cls._detect_ram_gb()
         _config_logger.info("Detected system RAM: %.1f GB -- selecting model profile", ram_gb)
@@ -239,9 +242,9 @@ class AgenticTMConfig(BaseModel):
         elif ram_gb <= 32:
             profile = ("qwen3.5:9b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
         elif ram_gb <= 64:
-            profile = ("gemma4:26b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
+            profile = ("qwen3.5:9b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
         else:
-            profile = ("gemma4:26b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
+            profile = ("qwen3.5:9b", "qwen3.5:9b", "qwen3:4b", "qwen3.5:9b")
 
         deep_model, stride_model, quick_model, vlm_model = profile
         _config_logger.info(

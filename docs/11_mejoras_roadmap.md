@@ -65,7 +65,7 @@
 
 | ID | Mejora | Esfuerzo | Descripción |
 |----|--------|----------|-------------|
-| **H1** | Diferenciación real quick vs deep | ~~Bajo~~ ✅ | ~~Usar modelo más capaz para deep~~ — Resuelto: 4 tiers (qwen3:4b / qwen3.5:9b / gemma4:26b) |
+| **H1** | Diferenciación real quick vs deep | ~~Bajo~~ ✅ | ~~Usar modelo más capaz para deep~~ — Resuelto: 4 tiers (quick=qwen3:4b; stride/deep/VLM=qwen3.5:9b) |
 | **H2** | Unificación idioma en prompts | Medio | 6 agentes tienen prompts en inglés, 4 en español. Unificar a español |
 | **H3** | Prompt Synthesizer para ≥15 amenazas | Medio | Instruir mínimo 15 amenazas con descripciones verbose |
 | **H4** | Schema unificado de amenazas (Pydantic) | Alto | Definir `Threat` model usado por todos los agentes |
@@ -109,7 +109,7 @@ Hallazgos principales:
 - ✅ Fan-out/fan-in de LangGraph: brillante
 - ✅ RAG dual (tree + vector): innovador
 - ⚠️ Debate estático (fixed rounds) → **Resuelto en v0.3.2**
-- ⚠️ Mismo modelo quick = deep → **Resuelto** (4 tiers: qwen3:4b / qwen3.5:9b / gemma4:26b)
+- ⚠️ Mismo modelo quick = deep → **Resuelto** (4 tiers: quick=qwen3:4b; stride/deep/VLM=qwen3.5:9b)
 - ⚠️ Spanglish en output → **Resuelto** (Output Localizer)
 
 ### Análisis Objetivo (doc 14)
@@ -137,7 +137,7 @@ Hallazgos principales:
 
 ### Sprint 1 — Estabilización
 
-1. **H1**: ~~Diferenciar models~~ ✅ Resuelto — 4 tiers con qwen3:4b / qwen3.5:9b / gemma4:26b
+1. **H1**: ~~Diferenciar models~~ ✅ Resuelto — quick=qwen3:4b; stride/deep/VLM=qwen3.5:9b (~6.6 GB, 9B)
 2. **C3**: Upload hardening (MIME whitelist, tamaños)
 3. **H7**: Error handling robusto por nodo (parcialmente implementado con `_safe_node`)
 
