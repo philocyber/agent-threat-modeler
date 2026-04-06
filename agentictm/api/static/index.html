@@ -3134,21 +3134,21 @@
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Escenario de Amenaza</th>
+                  <th>Threat Scenario</th>
                   <th>STRIDE</th>
-                  <th>Control de Amenaza</th>
+                  <th>Threat Control</th>
                   <th class="dread-col">D</th>
                   <th class="dread-col">R</th>
                   <th class="dread-col">E</th>
                   <th class="dread-col">A</th>
                   <th class="dread-col">D</th>
                   <th>DREAD</th>
-                  <th>Prioridad</th>
-                  <th>Estado</th>
-                  <th>Tratamiento</th>
-                  <th>Confianza</th>
-                  <th>Evidencia</th>
-                  <th class="justif-cell">Justificaci&oacute;n</th>
+                  <th>Priority</th>
+                  <th>Status</th>
+                  <th>Treatment</th>
+                  <th>Confidence</th>
+                  <th>Evidence</th>
+                  <th class="justif-cell">Justification</th>
                 </tr>
               </thead>
               <tbody id="threatsBody"></tbody>
@@ -3200,38 +3200,38 @@
           <div class="analytics-filters" id="analyticsFilters"></div>
           <div class="analytics-grid-3col" id="analyticsGrid">
             <div class="chart-card">
-              <h3>Distribución STRIDE</h3>
-              <p class="chart-subtitle">Amenazas por categoría de ataque</p>
+              <h3>STRIDE Distribution</h3>
+              <p class="chart-subtitle">Threats by attack category</p>
               <div class="chart-wrap" id="chartStride"></div>
             </div>
             <div class="chart-card">
-              <h3>Distribución de Riesgo</h3>
-              <p class="chart-subtitle">Severidad de las amenazas</p>
+              <h3>Risk Distribution</h3>
+              <p class="chart-subtitle">Threat severity breakdown</p>
               <div class="chart-wrap" id="chartRisk"></div>
             </div>
             <div class="chart-card">
-              <h3>Radar DREAD</h3>
-              <p class="chart-subtitle">Promedios de las 5 dimensiones</p>
+              <h3>DREAD Radar</h3>
+              <p class="chart-subtitle">Average across the 5 dimensions</p>
               <div class="chart-wrap" id="chartDread"></div>
             </div>
             <div class="chart-card">
-              <h3>Superficie de Ataque</h3>
-              <p class="chart-subtitle">Amenazas por componente</p>
+              <h3>Attack Surface</h3>
+              <p class="chart-subtitle">Threats by component</p>
               <div class="chart-wrap" id="chartSurface"></div>
             </div>
             <div class="chart-card full-width">
-              <h3>Heatmap STRIDE × Componente</h3>
-              <p class="chart-subtitle">Densidad de amenazas por tipo y componente</p>
+              <h3>STRIDE x Component Heatmap</h3>
+              <p class="chart-subtitle">Threat density by type and component</p>
               <div class="chart-wrap-tall" id="chartHeatmap"></div>
             </div>
             <div class="chart-card">
-              <h3>Flujo de Ataque</h3>
-              <p class="chart-subtitle">Sankey: componente → categoría → severidad</p>
+              <h3>Attack Flow</h3>
+              <p class="chart-subtitle">Sankey: component -> category -> severity</p>
               <div class="chart-wrap-tall" id="chartSankey"></div>
             </div>
             <div class="chart-card">
-              <h3>Confianza vs Esfuerzo</h3>
-              <p class="chart-subtitle">Cuadrantes de priorización</p>
+              <h3>Confidence vs Effort</h3>
+              <p class="chart-subtitle">Prioritization quadrants</p>
               <div class="chart-wrap-tall" id="chartScatter"></div>
             </div>
             <div class="chart-card">
@@ -3285,6 +3285,8 @@
     let _currentActiveAgent = null;
     let _elapsedTimerInterval = null;
     let _analysisStartTime = null;
+    let _activeStatusPoll = null;
+    let _recoveredEventCount = 0;
 
     // ══════════════════════════════════════════════════════════════════
     // Categories
@@ -3490,10 +3492,17 @@
     }
 
     // ── Elapsed timer ──
-    function _startElapsedTimer() {
-      _analysisStartTime = Date.now();
+    function _startElapsedTimer(startTimestamp = null) {
+      const parsedStart = startTimestamp ? new Date(startTimestamp).getTime() : NaN;
+      _analysisStartTime = Number.isFinite(parsedStart) ? parsedStart : Date.now();
       const timerEl = document.getElementById('elapsedTimer');
-      timerEl.textContent = '00:00';
+      const initialElapsed = Math.max(0, Math.floor((Date.now() - _analysisStartTime) / 1000));
+      const initialH = Math.floor(initialElapsed / 3600);
+      const initialM = Math.floor((initialElapsed % 3600) / 60);
+      const initialS = initialElapsed % 60;
+      timerEl.textContent = initialH > 0
+        ? `${initialH}:${String(initialM).padStart(2,'0')}:${String(initialS).padStart(2,'0')}`
+        : `${String(initialM).padStart(2,'0')}:${String(initialS).padStart(2,'0')}`;
       timerEl.classList.add('running');
       if (_elapsedTimerInterval) clearInterval(_elapsedTimerInterval);
       _elapsedTimerInterval = setInterval(() => {
@@ -3646,7 +3655,7 @@
       return d.innerHTML;
     }
 
-    function renderLiveExecution(events) {
+    function renderLiveExecution(events, metadata = {}) {
       document.getElementById('activeAgentArea').innerHTML = '';
       document.getElementById('agentHistory').innerHTML = '';
       document.getElementById('fullLogStream').innerHTML = '';
@@ -3661,7 +3670,20 @@
         return;
       }
       events.forEach(ev => {
-        if (ev && ev.type !== 'heartbeat') addThinkingEntry(ev);
+        if (!ev || ev.type === 'heartbeat') return;
+        if (ev.type === 'complete' && !ev.message) {
+          const durationSeconds = typeof ev.duration_seconds === 'number'
+            ? ev.duration_seconds
+            : (typeof metadata.duration_seconds === 'number' ? metadata.duration_seconds : 0);
+          const durationText = durationSeconds > 0 ? ` in ${durationSeconds.toFixed(1)}s` : '';
+          addThinkingEntry({
+            ...ev,
+            level: 'INFO',
+            message: `Analysis complete: ${ev.threats_count || metadata.threats_count || 0} threats identified${durationText}`,
+          });
+          return;
+        }
+        addThinkingEntry(ev);
       });
     }
 
@@ -3793,10 +3815,10 @@
       const chart = _initChart('chartRisk');
       if (!chart) return;
       const priorities = [
-        { key: 'Critical', label: 'Crítico', color: _CHART_COLORS.red },
-        { key: 'High', label: 'Alto', color: _CHART_COLORS.orange },
-        { key: 'Medium', label: 'Medio', color: _CHART_COLORS.yellow },
-        { key: 'Low', label: 'Bajo', color: _CHART_COLORS.green },
+        { key: 'Critical', label: 'Critical', color: _CHART_COLORS.red },
+        { key: 'High', label: 'High', color: _CHART_COLORS.orange },
+        { key: 'Medium', label: 'Medium', color: _CHART_COLORS.yellow },
+        { key: 'Low', label: 'Low', color: _CHART_COLORS.green },
       ];
       const data = priorities.map(p => ({
         name: p.label, value: threats.filter(t => (t.priority || '').toLowerCase() === p.key.toLowerCase()).length,
@@ -3936,7 +3958,7 @@
         const comp = t.component || 'Desconocido';
         const cat = STRIDE_MAP[(t.stride_category || '').toUpperCase()] || 'Otro';
         const prio = (t.priority || 'medium').toLowerCase();
-        const prioLabel = { critical: 'Crítico', high: 'Alto', medium: 'Medio', low: 'Bajo' }[prio] || prio;
+        const prioLabel = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' }[prio] || prio;
         nodesSet.add(comp); nodesSet.add(cat); nodesSet.add(prioLabel);
         links.push({ source: comp, target: cat, value: 1 });
         links.push({ source: cat, target: prioLabel, value: 1 });
@@ -3945,7 +3967,7 @@
       const linkMap = {};
       links.forEach(l => { const k = `${l.source}→${l.target}`; linkMap[k] = linkMap[k] || { ...l, value: 0 }; linkMap[k].value++; });
       const nodes = [...nodesSet].map(name => {
-        const color = PRIO_COLOR[Object.keys(PRIO_COLOR).find(k => ({ critical:'Crítico', high:'Alto', medium:'Medio', low:'Bajo' })[k] === name)]
+        const color = PRIO_COLOR[Object.keys(PRIO_COLOR).find(k => ({ critical:'Critical', high:'High', medium:'Medium', low:'Low' })[k] === name)]
           || (STRIDE_MAP[Object.keys(STRIDE_MAP).find(k => STRIDE_MAP[k] === name)] ? _CHART_COLORS.accent : _CHART_COLORS.blue);
         return { name, itemStyle: { color, borderColor: color } };
       });
@@ -4047,14 +4069,14 @@
       const withEvidence = threats.filter(t => t.evidence_sources && (Array.isArray(t.evidence_sources) ? t.evidence_sources.length : String(t.evidence_sources).length > 2)).length;
 
       container.innerHTML = [
-        { value: total, label: 'Total Amenazas', color: _CHART_COLORS.accent },
-        { value: critical, label: 'Críticas', color: _CHART_COLORS.red },
-        { value: high, label: 'Altas', color: _CHART_COLORS.orange },
-        { value: avgDread, label: 'DREAD Prom.', color: _CHART_COLORS.yellow },
-        { value: strideCats.size + '/6', label: 'Cobertura STRIDE', color: _CHART_COLORS.blue },
-        { value: components.size, label: 'Componentes', color: _CHART_COLORS.cyan },
-        { value: avgConf + '%', label: 'Confianza Prom.', color: _CHART_COLORS.purple },
-        { value: withEvidence, label: 'Con Evidencia', color: _CHART_COLORS.green },
+        { value: total, label: 'Total Threats', color: _CHART_COLORS.accent },
+        { value: critical, label: 'Critical', color: _CHART_COLORS.red },
+        { value: high, label: 'High', color: _CHART_COLORS.orange },
+        { value: avgDread, label: 'Avg. DREAD', color: _CHART_COLORS.yellow },
+        { value: strideCats.size + '/6', label: 'STRIDE Coverage', color: _CHART_COLORS.blue },
+        { value: components.size, label: 'Components', color: _CHART_COLORS.cyan },
+        { value: avgConf + '%', label: 'Avg. Confidence', color: _CHART_COLORS.purple },
+        { value: withEvidence, label: 'With Evidence', color: _CHART_COLORS.green },
       ].map(s => `
         <div class="stat-card">
           <div class="stat-value" style="color:${s.color}">${s.value}</div>
@@ -4266,6 +4288,102 @@
       const opts = { ...options };
       opts.headers = apiHeaders(opts.headers || {});
       return fetch(url, opts);
+    }
+
+    function _stopActiveStatusPolling() {
+      if (_activeStatusPoll) {
+        clearInterval(_activeStatusPoll);
+        _activeStatusPoll = null;
+      }
+    }
+
+    async function _pollRecoveredAnalysisStatus(id) {
+      try {
+        const resp = await apiFetch(`/api/analysis/${encodeURIComponent(id)}/status`);
+        if (!resp.ok) return;
+        const status = await resp.json();
+        const events = Array.isArray(status.live_execution) ? status.live_execution : [];
+
+        if (_inProgressAnalysis && _inProgressAnalysis.id === id && events.length > _recoveredEventCount) {
+          const newEvents = events.slice(_recoveredEventCount);
+          _recoveredEventCount = events.length;
+          newEvents.forEach(ev => handleEvent(ev));
+        }
+
+        if (status.status === 'completed') {
+          _stopActiveStatusPolling();
+          analysisId = id;
+          currentProjectSlug = status.project_slug || currentProjectSlug || id;
+          loadResults(id);
+        } else if (status.status === 'failed') {
+          _stopActiveStatusPolling();
+          if (_isViewingRunningAnalysis()) {
+            document.getElementById('topbarStatus').innerHTML = '<span class="status-dot" style="background:var(--red)"></span> Error';
+          }
+        }
+      } catch (err) {
+        console.warn('[Live] active analysis polling failed:', err);
+      }
+    }
+
+    function _startActiveStatusPolling(id) {
+      _stopActiveStatusPolling();
+      _activeStatusPoll = setInterval(() => {
+        _pollRecoveredAnalysisStatus(id);
+      }, 3000);
+    }
+
+    async function recoverActiveAnalysisOnLoad() {
+      try {
+        const activeResp = await apiFetch('/api/analyses/active');
+        if (!activeResp.ok) return false;
+        const activeData = await activeResp.json();
+        const active = Array.isArray(activeData.active) ? activeData.active : [];
+        if (active.length === 0) return false;
+
+        const currentPath = location.pathname || '/';
+        const parsed = parseProjectRoute(currentPath);
+        if (parsed.slug) return false;
+
+        const current = active[0];
+        const statusResp = await apiFetch(`/api/analysis/${encodeURIComponent(current.analysis_id)}/status`);
+        if (!statusResp.ok) return false;
+        const status = await statusResp.json();
+        const recoveredEvents = Array.isArray(status.live_execution) ? status.live_execution : [];
+
+        _inProgressAnalysis = {
+          id: current.analysis_id,
+          name: current.system_name || 'System',
+          events: recoveredEvents.slice(),
+          pipelineActive: new Set(),
+          pipelineDone: new Set(),
+          started_at: current.started_at || status.started_at || null,
+          input: status.system_input || '',
+          files: [],
+          categories: Array.isArray(current.categories) ? current.categories : [],
+        };
+        analysisId = current.analysis_id;
+        currentProjectSlug = status.project_slug || current.analysis_id;
+        _recoveredEventCount = recoveredEvents.length;
+
+        pastAnalyses = pastAnalyses.filter(p => p.id !== current.analysis_id);
+        pastAnalyses.unshift({
+          id: current.analysis_id,
+          name: current.system_name || 'System',
+          threats: status.threats_count || 0,
+          date: current.started_at || new Date().toISOString(),
+          slug: status.project_slug || current.analysis_id,
+          status: 'running',
+        });
+        savePastAnalyses();
+
+        resumeRunningAnalysis();
+        _startActiveStatusPolling(current.analysis_id);
+        return true;
+      } catch (err) {
+        console.warn('[Live] could not recover active analysis:', err);
+        return false;
+      }
     }
 
     function buildCloudProviders() {
@@ -4597,6 +4715,7 @@
         events: [],
         pipelineActive: new Set(),
         pipelineDone: new Set(),
+        started_at: new Date().toISOString(),
         input: systemInput,
         files: [...uploadedFiles],
         categories: Array.from(selectedCats),
@@ -4714,6 +4833,7 @@
           // Update the temp ID to the real one
           const oldId = _inProgressAnalysis.id;
           _inProgressAnalysis.id = realId;
+          _inProgressAnalysis.started_at = event.timestamp || _inProgressAnalysis.started_at || new Date().toISOString();
           pastAnalyses = pastAnalyses.map(p => p.id === oldId ? { ...p, id: realId, slug: realId } : p);
           savePastAnalyses();
           renderPastAnalyses();
@@ -4746,20 +4866,52 @@
           break;
         case 'heartbeat': break;
         case 'complete': {
-          const completeEntry = { level: 'INFO', message: `Analysis complete: ${event.threats_count} threats identified`, timestamp: event.timestamp };
+          const durationText = (typeof event.duration_seconds === 'number' && event.duration_seconds > 0)
+            ? ` in ${event.duration_seconds.toFixed(1)}s`
+            : '';
+          const completeEntry = {
+            level: 'INFO',
+            message: event.message || `Analysis complete: ${event.threats_count} threats identified${durationText}`,
+            timestamp: event.timestamp,
+          };
           if (_inProgressAnalysis) _inProgressAnalysis.events.push(completeEntry);
+          _stopActiveStatusPolling();
 
           // Transition from running to completed in sidebar
           _inProgressAnalysis = null;
-          savePastAnalysis(event.analysis_id, document.getElementById('systemName').value || 'System', event.threats_count);
+          savePastAnalysis(
+            event.analysis_id,
+            document.getElementById('systemName').value || 'System',
+            event.threats_count,
+            {
+              project_slug: currentProjectSlug || event.analysis_id,
+              completed_at: event.timestamp,
+              duration_seconds: typeof event.duration_seconds === 'number' ? event.duration_seconds : 0,
+            }
+          );
 
           if (viewing) {
             analysisId = event.analysis_id;
             PIPELINE_NODES.forEach(n => updatePipelineNode(n, 'done'));
             addThinkingEntry(completeEntry);
             _finalizeAgentBlocks();
-            const elapsed = document.getElementById('elapsedTimer').textContent;
+            const elapsed = (typeof event.duration_seconds === 'number' && event.duration_seconds > 0)
+              ? `${event.duration_seconds.toFixed(1)}s`
+              : document.getElementById('elapsedTimer').textContent;
             document.getElementById('topbarStatus').innerHTML = `<span class="status-dot"></span> ${event.threats_count} threats &middot; ${elapsed}`;
+            if (typeof event.duration_seconds === 'number' && event.duration_seconds > 0) {
+              const sec = Math.floor(event.duration_seconds);
+              const h = Math.floor(sec / 3600);
+              const m = Math.floor((sec % 3600) / 60);
+              const s = sec % 60;
+              const timerEl = document.getElementById('elapsedTimer');
+              if (timerEl) {
+                timerEl.textContent = h > 0
+                  ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+                  : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+              }
+            }
+            _stopElapsedTimer();
 
             loadResults(event.analysis_id).then(() => {
               // Auto-diff if versioned analysis
@@ -4780,6 +4932,7 @@
           const errEntries = [{ level: 'ERROR', message: event.message, timestamp: event.timestamp }];
           if (event.traceback) errEntries.push({ level: 'ERROR', message: 'Traceback:\n' + event.traceback, timestamp: event.timestamp });
           if (_inProgressAnalysis) _inProgressAnalysis.events.push(...errEntries);
+          _stopActiveStatusPolling();
 
           // Mark running analysis as failed
           pastAnalyses = pastAnalyses.map(p => p.status === 'running' ? { ...p, status: 'failed' } : p);
@@ -4843,10 +4996,20 @@
     let pastAnalyses = loadPastAnalysesLocal().filter(p => p.status !== 'running');
     function savePastAnalyses() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pastAnalyses)); } catch { } }
 
-    function savePastAnalysis(id, name, threats) {
+    function savePastAnalysis(id, name, threats, meta = {}) {
       // Remove any existing entry (including running ones) with this ID or running status
       pastAnalyses = pastAnalyses.filter(p => p.id !== id && p.status !== 'running');
-      pastAnalyses.unshift({ id, name, threats, date: new Date().toLocaleString(), slug: currentProjectSlug || id, status: 'completed' });
+      pastAnalyses.unshift({
+        id,
+        name,
+        threats,
+        date: meta.completed_at || meta.analysis_timestamp || new Date().toLocaleString(),
+        slug: meta.project_slug || currentProjectSlug || id,
+        status: 'completed',
+        started_at: meta.started_at || null,
+        completed_at: meta.completed_at || null,
+        duration_seconds: typeof meta.duration_seconds === 'number' ? meta.duration_seconds : 0,
+      });
       if (pastAnalyses.length > 50) pastAnalyses.pop();
       savePastAnalyses();
       renderPastAnalyses();
@@ -4871,6 +5034,9 @@
               date: s.analysis_date || s.analysis_timestamp || '',
               slug: s.project_slug || s.analysis_id,
               status: 'completed',
+              started_at: s.started_at || null,
+              completed_at: s.completed_at || null,
+              duration_seconds: typeof s.duration_seconds === 'number' ? s.duration_seconds : 0,
             });
           }
         }
@@ -4981,7 +5147,7 @@
 
       // Rebuild thinking entries from buffered events
       initPipeline();
-      _startElapsedTimer();
+      _startElapsedTimer(_inProgressAnalysis.started_at);
       _inProgressAnalysis.events.forEach(ev => addThinkingEntry(ev));
 
       // Restore pipeline state
@@ -5047,6 +5213,7 @@
     syncPastAnalyses();
 
     function resetToLanding() {
+      _stopActiveStatusPolling();
       document.getElementById('landing').classList.remove('hidden');
       document.getElementById('resultsView').classList.remove('active');
       setSidebarCollapsed(false);
@@ -5088,7 +5255,10 @@
           data.uploaded_files || currentAnalysisFiles || [],
           data.categories || [],
         );
-        renderLiveExecution(data.live_execution || []);
+        renderLiveExecution(data.live_execution || [], {
+          duration_seconds: data.duration_seconds,
+          threats_count: data.threats_count,
+        });
         if (data.categories && data.categories.length > 0) {
           const catsSection = document.getElementById('promptCatsSection');
           const catsEl = document.getElementById('promptCategories');
@@ -5105,7 +5275,7 @@
           document.getElementById('promptSystemDescSection').style.display = '';
           document.getElementById('promptSystemDesc').textContent = data.system_description;
         }
-        renderThreats(data.threats);
+        renderThreats(data.threats, data.validation_result || null);
         await renderDFD(data.mermaid_dfd);
         renderDebate(data.debate_history);
         await renderReport(data.report_output);
@@ -5123,6 +5293,8 @@
               : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
             timerEl.classList.remove('running');
           }
+        } else if (data.started_at) {
+          _startElapsedTimer(data.started_at);
         }
         // Cache analysis result for the DFD ThreatCanvas editor
         window._lastAnalysisResult = data;
@@ -5133,11 +5305,11 @@
     // ══════════════════════════════════════════════════════════════════
     // Render panels
     // ══════════════════════════════════════════════════════════════════
-    function renderThreats(threats) {
+    function renderThreats(threats, validation = null) {
       const body = document.getElementById('threatsBody');
       body.innerHTML = '';
       if (!threats || !threats.length) {
-        body.innerHTML = '<tr><td colspan="16" style="color:var(--text2);text-align:center">No se generaron amenazas</td></tr>';
+        body.innerHTML = '<tr><td colspan="16" style="color:var(--text2);text-align:center">No threats were generated</td></tr>';
         return;
       }
       // Summary
@@ -5145,11 +5317,17 @@
       const counts = {};
       threats.forEach(t => { const p = t.priority || 'Unknown'; counts[p] = (counts[p] || 0) + 1; });
       const justifiedCount = threats.filter(t => t.justification).length;
-      const PRIO_LABEL = { Critical: 'Cr\u00edtico', High: 'Alto', Medium: 'Medio', Low: 'Bajo' };
-      summary.innerHTML = '<strong>' + threats.length + ' amenazas</strong> &mdash; ' +
+      const PRIO_LABEL = { Critical: 'Critical', High: 'High', Medium: 'Medium', Low: 'Low' };
+      summary.innerHTML = '<strong>' + threats.length + ' threats</strong> &mdash; ' +
         ['Critical', 'High', 'Medium', 'Low'].filter(p => counts[p])
           .map(p => '<span class="prio-' + p + '">' + counts[p] + ' ' + (PRIO_LABEL[p] || p) + '</span>').join(' / ') +
-        (justifiedCount ? ' &mdash; <span style="color:var(--accent)">' + justifiedCount + ' justificados</span>' : '');
+        (justifiedCount ? ' &mdash; <span style="color:var(--accent)">' + justifiedCount + ' justified</span>' : '');
+      if (validation && validation.coverage_warning) {
+        const dims = Array.isArray(validation.complexity_dimensions)
+          ? validation.complexity_dimensions.join(', ')
+          : 'system complexity';
+        summary.innerHTML += `<div style="margin-top:10px;padding:10px 12px;border:1px solid rgba(232,155,58,0.35);background:rgba(232,155,58,0.08);border-radius:8px;color:var(--text2)"><strong style="color:#e89b3a">Quality warning:</strong> threat coverage looks low for this scenario (${validation.coverage_actual || threats.length} threats vs ~${validation.coverage_expected || '?'} expected from ${escapeHtml(dims)}).</div>`;
+      }
 
       // Category classification
       const CATEGORY_ORDER = [
@@ -5162,6 +5340,15 @@
         'Vulnerabilidades Web y API': 'WEB', 'Riesgos de Integraci\u00f3n Ag\u00e9ntica': 'AGE',
         'Amenazas Nativas de IA y LLM': 'LLM', 'Factores Humanos y Gobernanza': 'HUM', 'Amenazas Generales': 'TM'
       };
+      const CATEGORY_LABELS = {
+        'Infraestructura y Cumplimiento': 'Infrastructure and Compliance',
+        'Privacidad y L\u00f3gica de Negocio': 'Privacy and Business Logic',
+        'Vulnerabilidades Web y API': 'Web and API Vulnerabilities',
+        'Riesgos de Integraci\u00f3n Ag\u00e9ntica': 'Agentic Integration Risks',
+        'Amenazas Nativas de IA y LLM': 'Native AI and LLM Threats',
+        'Factores Humanos y Gobernanza': 'Human Factors and Governance',
+        'Amenazas Generales': 'General Threats'
+      };
       const CAT_KW = {
         'Infraestructura y Cumplimiento': ['infrastructure', 'infraestructura', 'credential', 'secret', 'deploy', 'compliance', 'environment', '.env', 'token', 'certificate', 'server', 'host', 'container', 'docker', 'kubernetes', 'monitoring', 'logging', 'cloud', 'aws', 'azure', 'gcp', 'terraform', 'tls', 'ssl', 'network', 'firewall', 'dns', 'cicd', 'ci/cd', 'pipeline', 'config', 'iac', 'cumplimiento', 'observab'],
         'Privacidad y L\u00f3gica de Negocio': ['privacy', 'privacidad', 'pii', 'gdpr', 'ccpa', 'personal data', 'consent', 'business logic', 'repudiation', 'repudio', 'audit trail', 'data protection', 'retention', 'anonymi', 'trazab', 'exfiltr'],
@@ -5170,8 +5357,8 @@
         'Amenazas Nativas de IA y LLM': ['llm', 'prompt inject', 'jailbreak', 'hallucin', 'alucinaci', 'model', 'training', 'poisoning', 'embedding', 'rag', 'vector', 'adversarial', 'extraction', 'system prompt', 'guardrail', 'artificial intelligence', 'machine learning', 'nlp', 'bias', 'sesgo'],
         'Factores Humanos y Gobernanza': ['human', 'humano', 'governance', 'gobernanza', 'oversight', 'automation bias', 'trust', 'review', 'approval', 'social engineer', 'insider', 'phishing']
       };
-      const STRIDE_FULL = { S: 'Suplantación', T: 'Manipulación', R: 'Repudio', I: 'Divulgación de Información', D: 'Denegación de Servicio', E: 'Elevación de Privilegios' };
-      const PRIO_ES = { Critical: 'CR\u00cdTICO', High: 'ALTO', Medium: 'MEDIO', Low: 'BAJO' };
+      const STRIDE_FULL = { S: 'Spoofing', T: 'Tampering', R: 'Repudiation', I: 'Information Disclosure', D: 'Denial of Service', E: 'Elevation of Privilege' };
+      const PRIO_ES = { Critical: 'CRITICAL', High: 'HIGH', Medium: 'MEDIUM', Low: 'LOW' };
 
       function classify(t) {
         const id = (t.id || '').toUpperCase();
@@ -5197,7 +5384,7 @@
         if (!list || !list.length) continue;
         const hdr = document.createElement('tr');
         hdr.className = 'category-row';
-        hdr.innerHTML = `<td colspan="16">${cat}</td>`;
+        hdr.innerHTML = `<td colspan="16">${CATEGORY_LABELS[cat] || cat}</td>`;
         body.appendChild(hdr);
         const pfx = PREFIX_MAP[cat] || 'TM';
         list.forEach((t, i) => {
@@ -5235,25 +5422,25 @@
           // Estado & Tratamiento dropdowns
           const estadoVal = t.estado || '';
           const tratamientoVal = t.tratamiento || '';
-          const estadoOpts = ['', 'Implementado', 'No Implementado', 'No Aplica'];
-          const tratamientoOpts = ['', 'Aceptar', 'Rechazar', 'Transferir', 'No Aplica'];
+          const estadoOpts = ['', 'Implemented', 'Not Implemented', 'Not Applicable'];
+          const tratamientoOpts = ['', 'Accept', 'Reject', 'Transfer', 'Not Applicable'];
           const estadoHtml = `<select class="inline-select" data-tid="${escapeHtml(t.id || tid)}" data-field="estado" onchange="saveThreatField(this)">${estadoOpts.map(o => `<option value="${o}"${o === estadoVal ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
           const tratamientoHtml = `<select class="inline-select" data-tid="${escapeHtml(t.id || tid)}" data-field="tratamiento" onchange="saveThreatField(this)">${tratamientoOpts.map(o => `<option value="${o}"${o === tratamientoVal ? ' selected' : ''}>${o || '—'}</option>`).join('')}</select>`;
 
           // Justification
           const justif = t.justification;
           const DECISION_LABELS = {
-            'FALSE_POSITIVE': 'Falso Positivo',
-            'MITIGATED_BY_INFRA': 'Mitigado',
-            'ACCEPTED_RISK': 'Riesgo Aceptado',
-            'NOT_APPLICABLE': 'No Aplica'
+            'FALSE_POSITIVE': 'False Positive',
+            'MITIGATED_BY_INFRA': 'Mitigated',
+            'ACCEPTED_RISK': 'Accepted Risk',
+            'NOT_APPLICABLE': 'Not Applicable'
           };
           let justifHtml;
           if (justif && justif.decision) {
             justifHtml = `<span class="justif-badge justif-${justif.decision}">${DECISION_LABELS[justif.decision] || justif.decision}</span>
           <button class="justif-btn" style="margin-left:4px" onclick="openJustifModal('${escapeHtml(tid)}', '${escapeHtml(t.id || tid)}')">Editar</button>`;
           } else {
-            justifHtml = `<button class="justif-btn" onclick="openJustifModal('${escapeHtml(tid)}', '${escapeHtml(t.id || tid)}')">Justificar</button>`;
+            justifHtml = `<button class="justif-btn" onclick="openJustifModal('${escapeHtml(tid)}', '${escapeHtml(t.id || tid)}')">Justify</button>`;
           }
 
           tr.innerHTML = `
@@ -5830,9 +6017,12 @@
     // ══════════════════════════════════════════════════════════════════
     // Handle initial URL route (for SPA navigation)
     // ══════════════════════════════════════════════════════════════════
-    (function handleInitialRoute() {
+    (async function handleInitialRoute() {
       const path = location.pathname;
       if (path === '/home' || path === '/') return;
+
+      const recovered = await recoverActiveAnalysisOnLoad();
+      if (recovered) return;
 
       const parsed = parseProjectRoute(path);
       if (parsed.tab && parsed.tab !== '__home__') {

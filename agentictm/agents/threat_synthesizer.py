@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 import time
 from typing import TYPE_CHECKING
@@ -111,6 +112,69 @@ _STRIDE_TO_CATEGORY: dict[str, str] = {
     "D": "Infraestructura y Cumplimiento",
     "E": "Infraestructura y Cumplimiento",
 }
+
+
+def _has_ai_surface(state: ThreatModelState) -> bool:
+    categories = {str(c).lower() for c in state.get("threat_categories", [])}
+    if "ai" in categories:
+        return True
+
+    text_chunks = [state.get("system_description", ""), state.get("raw_input", "")]
+    for component in state.get("components", []):
+        if isinstance(component, dict):
+            text_chunks.append(component.get("name", ""))
+            text_chunks.append(component.get("description", ""))
+
+    haystack = " ".join(_to_str(chunk) for chunk in text_chunks).lower()
+    ai_keywords = (
+        "llm", "agent", "agentic", "rag", "embedding", "model",
+        "prompt", "vector database", "machine learning", "artificial intelligence",
+    )
+    return any(keyword in haystack for keyword in ai_keywords)
+
+
+def _estimate_expected_threat_count(
+    state: ThreatModelState,
+    config: "AgenticTMConfig | None",
+) -> dict[str, object]:
+    components = state.get("components", [])
+    data_flows = state.get("data_flows", [])
+    trust_boundaries = state.get("trust_boundaries", [])
+    external_entities = state.get("external_entities", [])
+    active_categories = [
+        str(cat).lower()
+        for cat in state.get("threat_categories", [])
+        if str(cat).lower() not in {"base", "auto"}
+    ]
+    ai_present = _has_ai_surface(state)
+    min_threats = config.pipeline.min_threats if config else 8
+    max_threats = config.pipeline.max_threats if config else 40
+
+    expected = (
+        3
+        + math.ceil(len(components) * 0.5)
+        + math.ceil(len(data_flows) * 0.35)
+        + len(trust_boundaries)
+        + min(4, len(active_categories))
+        + (1 if len(external_entities) >= 2 else 0)
+        + (3 if ai_present else 0)
+    )
+    expected = max(min_threats, min(max_threats, expected))
+
+    dimensions = [
+        f"{len(components)} components",
+        f"{len(data_flows)} data flows",
+        f"{len(trust_boundaries)} trust boundaries",
+        f"{len(active_categories)} active categories",
+    ]
+    if ai_present:
+        dimensions.append("AI/LLM surface")
+
+    return {
+        "expected_count": expected,
+        "dimensions": dimensions,
+        "ai_present": ai_present,
+    }
 
 
 def _classify_threat_category(threat: dict) -> str:
@@ -510,10 +574,11 @@ Your job:
    - MAESTRO/AI Threat: AI/ML-specific risks (if applicable)
    Deduplicate but preserve each methodology's unique angle.
 
-   **MANDATORY MINIMUM: You MUST generate AT LEAST 15 distinct, well-defined threats.**
-   Professional threat models contain 15-25 threats. Aim for 18-25 threats
-   covering the full attack surface. If you have fewer than 15 after deduplication,
-   revisit the methodology outputs — there are always overlooked vectors such as:
+   PRIORITIZE COVERAGE OVER COUNT. Generate enough distinct, well-defined threats
+   to cover the real attack surface of this specific system. Use the system's
+   components, trust boundaries, data flows, and active categories to decide
+   whether the result looks complete. If coverage feels thin after deduplication,
+   revisit the methodology outputs — there are often overlooked vectors such as:
    denial of service, supply chain, configuration drift, insider threat,
    credential stuffing, session hijacking, crypto weaknesses, logging gaps,
    trust boundary violations, and API abuse.
@@ -1950,25 +2015,28 @@ def run_threat_synthesizer(
         _self_reflect = True
         logger.info("[Synthesizer] Self-reflection ENABLED (%d rounds)", config.pipeline.self_reflection_rounds)
 
-    # Safety thresholds (use config if available for I13)
+    # Coverage heuristics are complexity-based, not a fixed global count.
     _target = config.pipeline.target_threats if config else 20
     _min_t = config.pipeline.min_threats if config else 8
-    MIN_LLM_THREATS = max(_min_t, int(baseline_count * 0.6))  # LLM must produce at least 60% of raw count
+    _max_t = config.pipeline.max_threats if config else 40
+    coverage_plan = _estimate_expected_threat_count(state, config)
+    expected_threat_count = int(coverage_plan["expected_count"])
+    coverage_dimensions = coverage_plan["dimensions"]
     logger.info(
-        "[Synthesizer] MIN_LLM_THREATS threshold: %d (baseline=%d, target=%d)",
-        MIN_LLM_THREATS, baseline_count, _target,
+        "[Synthesizer] Complexity-based coverage target: ~%d threats (%s) | baseline=%d | configured_target=%d",
+        expected_threat_count,
+        ", ".join(str(part) for part in coverage_dimensions),
+        baseline_count,
+        _target,
     )
 
-    # Build dynamic system prompt with configurable target (I13)
-    _max_t = config.pipeline.max_threats if config else 40
-    effective_system_prompt = SYSTEM_PROMPT
-    if _target != 20:  # Override the default 15-25 range if config differs
-        effective_system_prompt = effective_system_prompt.replace(
-            "**MANDATORY MINIMUM: You MUST generate AT LEAST 15 distinct, well-defined threats.**\n"
-            "   Professional threat models contain 15-25 threats. Aim for 18-25 threats",
-            f"**MANDATORY MINIMUM: You MUST generate AT LEAST {_min_t} distinct, well-defined threats.**\n"
-            f"   Professional threat models contain {_min_t}-{_max_t} threats. Aim for {_target}-{_target + 5} threats",
-        )
+    effective_system_prompt = (
+        f"{SYSTEM_PROMPT}\n\n"
+        "Coverage guidance for this run:\n"
+        f"- Estimated complete coverage for this system: about {expected_threat_count} threats.\n"
+        f"- Complexity signals: {', '.join(str(part) for part in coverage_dimensions)}.\n"
+        "- This is guidance, not a hard minimum. Prefer attack-surface completeness over hitting a fixed count.\n"
+    )
 
     _output_lang = config.pipeline.output_language if config else "en"
 
@@ -2124,12 +2192,12 @@ def run_threat_synthesizer(
             llm_threats = extract_threats_from_markdown(response, "Synthesizer")
 
     # ── Step 3b: Retry with condensed prompt if too few threats ──
-    if len(llm_threats) < MIN_LLM_THREATS and baseline_count > 0:
+    if len(llm_threats) < expected_threat_count and baseline_count > 0:
         remaining_budget = SYNTH_TIMEOUT - (time.perf_counter() - t0)
         if remaining_budget > 120:
             logger.warning(
-                "[Synthesizer] Only %d threats (need %d). Retrying with condensed prompt (%.0fs budget left).",
-                len(llm_threats), MIN_LLM_THREATS, remaining_budget,
+                "[Synthesizer] Coverage looks thin: %d threats vs complexity target ~%d. Retrying with condensed prompt (%.0fs budget left).",
+                len(llm_threats), expected_threat_count, remaining_budget,
             )
             condensed_threats = sorted(
                 baseline_threats, key=lambda t: t.get("dread_total", 0), reverse=True,
@@ -2194,38 +2262,19 @@ def run_threat_synthesizer(
             except Exception as retry_exc:
                 logger.warning("[Synthesizer-Retry] Retry failed: %s", retry_exc)
 
+    llm_coverage_ratio = (len(llm_threats) / expected_threat_count) if expected_threat_count > 0 else 1.0
     logger.info(
-        "[Synthesizer] LLM produced %d threats (threshold=%d, baseline=%d)",
-        len(llm_threats), MIN_LLM_THREATS, baseline_count,
+        "[Synthesizer] LLM produced %d threats (~%.0f%% of complexity target %d, baseline=%d)",
+        len(llm_threats), llm_coverage_ratio * 100, expected_threat_count, baseline_count,
     )
 
     # ── Step 4: Decide which threats to use (hybrid merge) ──
     _used_baseline = False
-    if len(llm_threats) >= MIN_LLM_THREATS:
+    if llm_threats:
         threats_final = llm_threats
         logger.info(
-            "[Synthesizer] Using LLM output: %d threats (above threshold %d)",
-            len(threats_final), MIN_LLM_THREATS,
-        )
-    elif llm_threats and baseline_count > 0:
-        logger.warning(
-            "[Synthesizer] LLM produced only %d threats (below threshold %d). "
-            "MERGING with baseline %d threats.",
-            len(llm_threats), MIN_LLM_THREATS, baseline_count,
-        )
-        _used_baseline = True
-        threats_final = list(baseline_threats)
-
-        baseline_descs = {t.get("description", "").lower()[:80] for t in baseline_threats}
-        added_from_llm = 0
-        for lt in llm_threats:
-            lt_desc = (lt.get("description", "") or "").lower()[:80]
-            if lt_desc and lt_desc not in baseline_descs:
-                threats_final.append(lt)
-                added_from_llm += 1
-        logger.info(
-            "[Synthesizer] Merged: %d baseline + %d unique LLM = %d total",
-            baseline_count, added_from_llm, len(threats_final),
+            "[Synthesizer] Using LLM output: %d threats",
+            len(threats_final),
         )
     else:
         _used_baseline = True
@@ -2264,6 +2313,25 @@ def run_threat_synthesizer(
     threats_final.sort(key=lambda t: t.get("dread_total", 0), reverse=True)
     threats_final = _assign_category_ids(threats_final)
 
+    final_coverage_ratio = (len(threats_final) / expected_threat_count) if expected_threat_count > 0 else 1.0
+    coverage_warning = final_coverage_ratio < 0.75
+    validation_result = {
+        "coverage_expected": expected_threat_count,
+        "coverage_actual": len(threats_final),
+        "coverage_ratio": round(final_coverage_ratio, 2),
+        "coverage_warning": coverage_warning,
+        "complexity_dimensions": coverage_dimensions,
+        "used_baseline_fallback": _used_baseline,
+    }
+    if coverage_warning:
+        warning_text = (
+            f"Quality warning: final threat coverage looks low for this system's complexity "
+            f"({len(threats_final)} threats vs about {expected_threat_count} expected from "
+            f"{', '.join(str(part) for part in coverage_dimensions)})."
+        )
+        logger.warning("[Synthesizer] %s", warning_text)
+        executive_summary = f"{executive_summary}\n\n{warning_text}".strip() if executive_summary else warning_text
+
     total_elapsed = time.perf_counter() - t0
     logger.info(
         "[Synthesizer] COMPLETED in %.1fs (LLM=%.1fs): %d final prioritized threats "
@@ -2287,4 +2355,5 @@ def run_threat_synthesizer(
         "executive_summary": executive_summary or
             "Threat model synthesized from multiple methodology analyses.",
         "report_output": raw_response,  # Keep raw response for report
+        "validation_result": validation_result,
     }

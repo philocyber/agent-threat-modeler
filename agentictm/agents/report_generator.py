@@ -29,39 +29,39 @@ logger = logging.getLogger(__name__)
 
 # CSV columns matching the team's format
 PROFESSIONAL_CSV_COLUMNS = [
-    "ID Amenaza",
-    "Escenario de Amenaza",
+    "Threat ID",
+    "Threat Scenario",
     "STRIDE",
-    "Control de Amenaza (implementar)",
+    "Threat Control (to implement)",
     "D",
     "R",
     "E",
     "A",
     "D.1",  # Second D column (Discoverability)
-    "Puntaje DREAD",
-    "Prioridad para la Implementación",
-    "Estado",
-    "Tratamiento de Riesgo del Control",
+    "DREAD Score",
+    "Implementation Priority",
+    "Status",
+    "Control Risk Treatment",
     "Jira Ticket",
-    "Justificación/Observaciones",
+    "Justification/Observations",
 ]
 
 # STRIDE category mapping: letter → full name
 _STRIDE_FULL = {
-    "S": "Suplantación de Identidad (Spoofing)",
-    "T": "Manipulación (Tampering)",
-    "R": "Repudio (Repudiation)",
-    "I": "Divulgación de Información (Info. Disclosure)",
-    "D": "Denegación de Servicio (DoS)",
-    "E": "Elevación de Privilegios (EoP)",
+    "S": "Spoofing",
+    "T": "Tampering",
+    "R": "Repudiation",
+    "I": "Information Disclosure",
+    "D": "Denial of Service",
+    "E": "Elevation of Privilege",
 }
 
 # Priority mapping to Spanish
 _PRIORITY_ES = {
-    "Critical": "CRÍTICO",
-    "High": "ALTO",
-    "Medium": "MEDIO",
-    "Low": "BAJO",
+    "Critical": "CRITICAL",
+    "High": "HIGH",
+    "Medium": "MEDIUM",
+    "Low": "LOW",
 }
 
 # Threat ID prefix mapping by category
@@ -117,16 +117,16 @@ def generate_csv(state: ThreatModelState) -> str:
     """
     threats = state.get("threats_final", [])
     if not threats:
-        return "# No se generaron amenazas"
+        return "# No threats were generated"
 
-    system_name = state.get("system_name", "Sistema")
+    system_name = state.get("system_name", "System")
     analysis_date = state.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
 
     output = io.StringIO()
     writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
 
     # Header row (team info placeholder)
-    writer.writerow(["l", "", "", "", "", "", "", "", "", "", "Equipo de Desarrollo", "", "", ""])
+    writer.writerow(["l", "", "", "", "", "", "", "", "", "", "Development Team", "", "", ""])
     writer.writerow(PROFESSIONAL_CSV_COLUMNS)
 
     # Group threats by category (content-based, matching professional TM structure)
@@ -145,13 +145,22 @@ def generate_csv(state: ThreatModelState) -> str:
         "Factores Humanos y Gobernanza",
         "Amenazas Generales",
     ]
+    category_display = {
+        "Infraestructura y Cumplimiento": "Infrastructure and Compliance",
+        "Privacidad y Lógica de Negocio": "Privacy and Business Logic",
+        "Vulnerabilidades Web y API": "Web and API Vulnerabilities",
+        "Riesgos de Integración Agéntica": "Agentic Integration Risks",
+        "Amenazas Nativas de IA y LLM": "Native AI and LLM Threats",
+        "Factores Humanos y Gobernanza": "Human Factors and Governance",
+        "Amenazas Generales": "General Threats",
+    }
     threat_global_idx = 1
     for group_name in category_order:
         group_threats = groups.get(group_name)
         if not group_threats:
             continue
         # Section separator
-        writer.writerow([group_name] + [""] * 14)
+        writer.writerow([category_display.get(group_name, group_name)] + [""] * 14)
 
         for threat in group_threats:
             tid = _assign_threat_id(threat, threat_global_idx)
@@ -161,7 +170,7 @@ def generate_csv(state: ThreatModelState) -> str:
             )
             dread_avg = _compute_dread_average(threat)
             priority = _PRIORITY_ES.get(
-                threat.get("priority", "Medium"), "MEDIO"
+                threat.get("priority", "Medium"), "MEDIUM"
             )
 
             writer.writerow([
@@ -176,8 +185,8 @@ def generate_csv(state: ThreatModelState) -> str:
                 threat.get("discoverability", 0),
                 dread_avg,
                 priority,
-                threat.get("status", "No implementado"),
-                "Mitigar",
+                threat.get("status", "Not Implemented"),
+                "Mitigate",
                 "",  # Jira ticket placeholder
                 threat.get("observations", ""),
             ])
@@ -186,19 +195,19 @@ def generate_csv(state: ThreatModelState) -> str:
     # Footer with project metadata
     writer.writerow([])
     writer.writerow([])
-    writer.writerow(["Nombre del proyecto", system_name])
-    writer.writerow(["Fecha reporte TM", analysis_date])
+    writer.writerow(["Project name", system_name])
+    writer.writerow(["Threat model report date", analysis_date])
     writer.writerow(["Total Threat Controls", str(len(threats))])
     categories = state.get("threat_categories", [])
-    writer.writerow(["Categorías activas", ", ".join(categories) if categories else "auto"])
-    writer.writerow(["Estado", "GENERADO POR AGENTICTM"])
+    writer.writerow(["Active categories", ", ".join(categories) if categories else "auto"])
+    writer.writerow(["Status", "GENERATED BY AGENTICTM"])
 
     return output.getvalue()
 
 
 def generate_markdown_report(state: ThreatModelState) -> str:
     """Genera un reporte Markdown completo del threat model."""
-    system_name = state.get("system_name", "Sistema")
+    system_name = state.get("system_name", "System")
     analysis_date = state.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
     threats = state.get("threats_final", [])
 
@@ -215,19 +224,19 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         or state.get("system_description", "No description available.")
     )
 
-    report = f"""# Reporte de Modelo de Amenazas — {system_name}
+    report = f"""# Threat Model Report — {system_name}
 
-> **Fecha:** {analysis_date}
-> **Generado por:** AgenticTM v{__version__} — Threat Agent Modeler
-> **Metodologías:** {methodology_line}
+> **Date:** {analysis_date}
+> **Generated by:** AgenticTM v{__version__} — Threat Agent Modeler
+> **Methodologies:** {methodology_line}
 
 ---
 
-## Resumen Ejecutivo
+## Executive Summary
 
 {exec_summary}
 
-**Total de amenazas identificadas:** {len(threats)}
+**Total threats identified:** {len(threats)}
 """
 
     # Counts by priority
@@ -238,7 +247,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
 
     for prio in ["Critical", "High", "Medium", "Low"]:
         count = by_priority.get(prio, 0)
-        prio_es = {"Critical": "Crítico", "High": "Alto", "Medium": "Medio", "Low": "Bajo"}.get(prio, prio)
+        prio_es = {"Critical": "Critical", "High": "High", "Medium": "Medium", "Low": "Low"}.get(prio, prio)
         if count:
             report += f"- **{prio_es}:** {count}\n"
 
@@ -248,7 +257,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         report += f"""
 ---
 
-## Diagrama de Flujo de Datos
+## Data Flow Diagram
 
 ```mermaid
 {mermaid_dfd}
@@ -259,10 +268,10 @@ def generate_markdown_report(state: ThreatModelState) -> str:
     report += """
 ---
 
-## Resumen de Amenazas
+## Threat Summary
 
-| ID | Componente | Amenaza | STRIDE | DREAD | Prioridad | Confianza | Mitigación |
-|----|-----------|--------|--------|-------|----------|-----------|------------|
+| ID | Component | Threat Scenario | STRIDE | DREAD | Priority | Confidence | Threat Control |
+|----|-----------|-----------------|--------|-------|----------|-----------|----------------|
 """
     for t in threats:
         tid = t.get("id", "?")
@@ -282,7 +291,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         report += f"| {tid} | {comp} | {desc} | {stride} | {dread} | {prio} | {conf_str} | {mitigation} |\n"
 
     # ── Detalle por amenaza ──
-    report += "\n---\n\n## Detalle de Amenazas\n"
+    report += "\n---\n\n## Threat Details\n"
     for t in threats:
         tid = t.get("id", "?")
         conf = t.get("confidence_score", 0)
@@ -291,22 +300,22 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         stride_full = _STRIDE_FULL.get(stride_raw, stride_raw)
 
         report += f"""
-### {tid}: {t.get('description', 'Sin descripción')[:100]}
+### {tid}: {t.get('description', 'No description')[:100]}
 
-- **Componente:** {t.get('component', '?')}
-- **Categoría STRIDE:** {stride_full}
+- **Component:** {t.get('component', '?')}
+- **STRIDE Category:** {stride_full}
 - **DREAD Score:** D={t.get('damage', 0)} R={t.get('reproducibility', 0)} E={t.get('exploitability', 0)} A={t.get('affected_users', 0)} D={t.get('discoverability', 0)} → **{t.get('dread_total', 0)}/50**
-- **Prioridad:** {t.get('priority', '?')}
-- **Confianza:** {conf_str}
-- **Mitigación:** {t.get('mitigation', 'Sin mitigación propuesta')}
-- **Control de referencia:** {t.get('control_reference', 'N/A')}
-- **Esfuerzo:** {t.get('effort', '?')}
-- **Observaciones:** {t.get('observations', 'Sin observaciones')}
+- **Priority:** {t.get('priority', '?')}
+- **Confidence:** {conf_str}
+- **Threat Control:** {t.get('mitigation', 'No mitigation proposed')}
+- **Control Reference:** {t.get('control_reference', 'N/A')}
+- **Effort:** {t.get('effort', '?')}
+- **Observations:** {t.get('observations', 'No observations')}
 """
         # Evidence sources
         evidence = t.get("evidence_sources", [])
         if evidence:
-            report += "\n**Fuentes de evidencia:**\n"
+            report += "\n**Evidence sources:**\n"
             for es in evidence:
                 if isinstance(es, dict):
                     report += f"- [{es.get('source_type', '')}] {es.get('source_name', '')}"
@@ -318,22 +327,22 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         justif = t.get("justification")
         if isinstance(justif, dict) and justif.get("decision"):
             decision_labels = {
-                "FALSE_POSITIVE": "Falso Positivo",
-                "MITIGATED_BY_INFRA": "Mitigado por Infraestructura",
-                "ACCEPTED_RISK": "Riesgo Aceptado",
-                "NOT_APPLICABLE": "No Aplica",
+                "FALSE_POSITIVE": "False Positive",
+                "MITIGATED_BY_INFRA": "Mitigated by Infrastructure",
+                "ACCEPTED_RISK": "Accepted Risk",
+                "NOT_APPLICABLE": "Not Applicable",
             }
             report += f"""
-> **Justificación:** {decision_labels.get(justif['decision'], justif['decision'])}
-> **Razón:** {justif.get('reason_text', '')}
-> **Justificado por:** {justif.get('justified_by', 'N/A')} — {justif.get('justified_at', '')}
+> **Justification:** {decision_labels.get(justif['decision'], justif['decision'])}
+> **Reason:** {justif.get('reason_text', '')}
+> **Justified by:** {justif.get('justified_by', 'N/A')} — {justif.get('justified_at', '')}
 """
 
     # ── Methodology contributions (Spanish summary only) ──
     report += """
 ---
 
-## Resumen por Metodología
+## Methodology Summary
 
 """
     for r in state.get("methodology_reports", []):
@@ -341,8 +350,8 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         threats_raw = r.get("threats_raw", [])
         report += (
             f"### {methodology}\n\n"
-            f"- Hallazgos estructurados detectados: **{len(threats_raw)}**\n"
-            "- El detalle fue consolidado y priorizado en la tabla final de amenazas.\n\n"
+            f"- Structured findings detected: **{len(threats_raw)}**\n"
+            "- Details were consolidated and prioritized in the final threat table.\n\n"
         )
 
     # ── Attack Trees ──
@@ -369,7 +378,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
                     })
 
     if attack_tree_reports:
-        report += "---\n\n## Árboles de Ataque\n\n"
+        report += "---\n\n## Attack Trees\n\n"
         for at in attack_tree_reports:
             label = at.get("methodology", "ATTACK_TREE")
             root_goal = at.get("root_goal", "")
@@ -379,8 +388,8 @@ def generate_markdown_report(state: ThreatModelState) -> str:
     # ── DREAD Analysis ──
     dread_threats = [t for t in threats if t.get("dread_total", 0) > 0]
     if dread_threats:
-        report += "---\n\n## Análisis de Riesgo DREAD\n\n"
-        report += "| ID | D | R | E | A | D | Total | Prioridad |\n"
+        report += "---\n\n## DREAD Risk Analysis\n\n"
+        report += "| ID | D | R | E | A | D | Total | Priority |\n"
         report += "|----|---|---|---|---|---|-------|----------|\n"
         for t in sorted(dread_threats, key=lambda x: x.get("dread_total", 0), reverse=True):
             tid = t.get("id", "?")
@@ -392,10 +401,10 @@ def generate_markdown_report(state: ThreatModelState) -> str:
             total = t.get("dread_total", 0)
             prio = t.get("priority", "?")
             report += f"| {tid} | {d} | {r2} | {e2} | {a} | {disc} | **{total}** | {prio} |\n"
-        report += "\n**Puntuación DREAD:**\n"
-        report += "- D=Daño, R=Reproducibilidad, E=Explotabilidad, A=Usuarios Afectados, D=Descubribilidad\n"
-        report += "- Escala: 1-10 por categoría, Total = suma de las 5 (máximo 50)\n"
-        report += "- Crítico: 40+, Alto: 30-39, Medio: 20-29, Bajo: <20\n\n"
+        report += "\n**DREAD scoring:**\n"
+        report += "- D=Damage, R=Reproducibility, E=Exploitability, A=Affected Users, D=Discoverability\n"
+        report += "- Scale: 1-10 per category, Total = sum of the 5 dimensions (max 50)\n"
+        report += "- Critical: 40+, High: 30-39, Medium: 20-29, Low: <20\n\n"
 
     # ── Debate ──
     # Prefer localized debate if available (set by output_localizer for Spanish)
@@ -423,7 +432,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
                 arg = arg.strip()
             report += f"### {side} -- Round {rnd}\n\n{arg}\n\n---\n\n"
 
-    report += f"\n---\n\n*Reporte generado automáticamente por AgenticTM v{__version__} — {analysis_date}*\n"
+    report += f"\n---\n\n*Report generated automatically by AgenticTM v{__version__} — {analysis_date}*\n"
     return report
 
 
@@ -693,7 +702,7 @@ def generate_latex_report(state: ThreatModelState) -> str:
     \textcolor{{accent}}{{\Large Threat Model Report}} \\[0.5em]
     \textbf{{\huge {esc(system_name)}}}
 }}
-\author{{Generado por AgenticTM v{__version__} --- Threat Agent Modeler}}
+\author{{Generated by AgenticTM v{__version__} --- Threat Agent Modeler}}
 \date{{{esc(analysis_date)}}}
 
 \begin{{document}}
@@ -703,23 +712,23 @@ def generate_latex_report(state: ThreatModelState) -> str:
 \newpage
 
 % ════════════════════════════════════════════════════════════
-\section{{Resumen Ejecutivo}}
+\section{{Executive Summary}}
 
 {esc(exec_summary[:2000])}
 
 \begin{{itemize}}
-  \item \textbf{{Total amenazas identificadas:}} {len(threats)}
-  \item \textbf{{Distribución:}} {prio_summary}
-  \item \textbf{{Categorías activas:}} {', '.join(categories) if categories else 'auto'}
+  \item \textbf{{Total threats identified:}} {len(threats)}
+  \item \textbf{{Distribution:}} {prio_summary}
+  \item \textbf{{Active categories:}} {', '.join(categories) if categories else 'auto'}
 \end{{itemize}}
 
 % ════════════════════════════════════════════════════════════
-\section{{Tabla de Amenazas}}
+\section{{Threat Table}}
 
 \begin{{footnotesize}}
 \begin{{longtable}}{{p{{1.2cm}}p{{4cm}}p{{1.2cm}}p{{3.5cm}}ccccccl}}
     \toprule
-    \textbf{{ID}} & \textbf{{Escenario}} & \textbf{{STRIDE}} & \textbf{{Control}} & \textbf{{D}} & \textbf{{R}} & \textbf{{E}} & \textbf{{A}} & \textbf{{D}} & \textbf{{DREAD}} & \textbf{{Prioridad}} \\
+    \textbf{{ID}} & \textbf{{Scenario}} & \textbf{{STRIDE}} & \textbf{{Control}} & \textbf{{D}} & \textbf{{R}} & \textbf{{E}} & \textbf{{A}} & \textbf{{D}} & \textbf{{DREAD}} & \textbf{{Priority}} \\
     \midrule
     \endhead
 {threat_rows}    \bottomrule
@@ -727,17 +736,17 @@ def generate_latex_report(state: ThreatModelState) -> str:
 \end{{footnotesize}}
 
 % ════════════════════════════════════════════════════════════
-\section{{Detalle de Amenazas}}
+\section{{Threat Details}}
 
 {detail_sections}
 
 % ════════════════════════════════════════════════════════════
-\section{{Información del Reporte}}
+\section{{Report Information}}
 
 \begin{{description}}
-  \item[Herramienta:] AgenticTM v{__version__} --- Threat Agent Modeler
-  \item[Metodologías:] STRIDE + PASTA + Attack Trees + MAESTRO + AI Threats + DREAD
-  \item[Fecha:] {esc(analysis_date)}
+  \item[Tool:] AgenticTM v{__version__} --- Threat Agent Modeler
+  \item[Methodologies:] STRIDE + PASTA + Attack Trees + MAESTRO + AI Threats + DREAD
+  \item[Date:] {esc(analysis_date)}
   \item[Total Threat Controls:] {len(threats)}
   \item[Estado:] GENERADO POR AGENTICTM
 \end{{description}}

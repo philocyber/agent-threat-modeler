@@ -218,6 +218,21 @@ _store = ResultStore(Path("data/results.db"))
 _OUTPUT_DIR = Path(os.environ.get("AGENTICTM_OUTPUT", "./output"))
 
 
+def _append_live_event(analysis_id: str, event: dict[str, Any]) -> None:
+    """Mirror live SSE events into in-memory status so /live can recover mid-scan."""
+    status = _analysis_status.get(analysis_id)
+    if not status:
+        return
+    events = status.setdefault("live_execution", [])
+    if not isinstance(events, list):
+        events = []
+        status["live_execution"] = events
+    events.append(event)
+    # Keep memory bounded while preserving enough history to rebuild the live tab.
+    if len(events) > 600:
+        del events[:-600]
+
+
 def _slugify(text: str) -> str:
     txt = unicodedata.normalize("NFKD", text or "")
     txt = txt.encode("ascii", "ignore").decode("ascii")
@@ -1269,6 +1284,8 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
         "started_at": datetime.now().isoformat(),
         "system_name": request.system_name,
         "categories": request.categories,
+        "system_input": request.system_input,
+        "live_execution": [],
     }
 
     system_input = request.system_input
@@ -1340,6 +1357,7 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
             "timestamp": datetime.now().isoformat(),
         }
         live_events.append(start_event)
+        _append_live_event(analysis_id, start_event)
         yield _sse_event(start_event)
 
         # Run analysis in thread pool
@@ -1363,6 +1381,7 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     event = await asyncio.wait_for(queue.get(), timeout=0.5)
                     if isinstance(event, dict) and event.get("type") != "heartbeat":
                         live_events.append(event)
+                        _append_live_event(analysis_id, event)
                     yield _sse_event(event)
                 except asyncio.TimeoutError:
                     # Send heartbeat
@@ -1373,6 +1392,7 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                 event = queue.get_nowait()
                 if isinstance(event, dict) and event.get("type") != "heartbeat":
                     live_events.append(event)
+                    _append_live_event(analysis_id, event)
                 yield _sse_event(event)
 
             # Get result
@@ -1391,6 +1411,7 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     "timestamp": datetime.now().isoformat(),
                 }
                 live_events.append(clarify_event)
+                _append_live_event(analysis_id, clarify_event)
                 result["live_execution"] = list(live_events)
                 _results[analysis_id] = result
                 await _store.save(analysis_id, result)
@@ -1459,10 +1480,13 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                 "type": "complete",
                 "analysis_id": analysis_id,
                 "threats_count": threats_count,
+                "duration_seconds": round(elapsed, 2),
                 "categories": result.get("threat_categories", []),
+                "message": f"Analysis complete: {threats_count} threats identified in {elapsed:.1f}s",
                 "timestamp": datetime.now().isoformat(),
             }
             live_events.append(complete_event)
+            _append_live_event(analysis_id, complete_event)
             result["live_execution"] = list(live_events)
             _results[analysis_id] = result
             await _store.save(analysis_id, result)
@@ -1494,6 +1518,11 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     "status": "failed",
                     "error": str(exc),
                     "completed_at": datetime.now().isoformat(),
+                })
+                _append_live_event(analysis_id, {
+                    "type": "error",
+                    "message": f"{type(exc).__name__}: {exc}",
+                    "timestamp": datetime.now().isoformat(),
                 })
 
         finally:
@@ -1595,6 +1624,7 @@ def _run_analysis_sync(
     except Exception:
         raise
     result["analysis_timestamp"] = datetime.now().isoformat()
+    result["started_at"] = _analysis_status.get(analysis_id, {}).get("started_at")
     result["max_debate_rounds"] = max_debate_rounds
     result["scan_mode"] = scan_mode
     elapsed = time.perf_counter() - t0
@@ -1619,10 +1649,13 @@ def _run_analysis_sync(
             "threats_count": threats_count,
             "duration_seconds": round(elapsed, 2),
         })
+        result["completed_at"] = _analysis_status[analysis_id].get("completed_at")
 
     # Also save to disk
     result["_analysis_id"] = analysis_id
     result["project_slug"] = _build_project_slug(result, analysis_id)
+    if analysis_id in _analysis_status:
+        _analysis_status[analysis_id]["project_slug"] = result["project_slug"]
     try:
         out_dir = tm.save_output(result)
         result["output_dir"] = str(out_dir)
@@ -1703,6 +1736,9 @@ async def list_results(_auth=Depends(verify_api_key)):
             "system_name": r.get("system_name", ""),
             "analysis_date": r.get("analysis_date", ""),
             "analysis_timestamp": r.get("analysis_timestamp", ""),
+            "started_at": r.get("started_at", ""),
+            "completed_at": r.get("completed_at", ""),
+            "duration_seconds": r.get("duration_seconds", 0),
             "categories": r.get("threat_categories", []),
             "threats_count": len(r.get("threats_final", [])),
         })
@@ -1801,6 +1837,8 @@ async def get_result(analysis_id: str, _auth=Depends(verify_api_key)):
         "system_name": result.get("system_name", ""),
         "analysis_date": result.get("analysis_date", ""),
         "analysis_timestamp": result.get("analysis_timestamp", ""),
+        "started_at": result.get("started_at", ""),
+        "completed_at": result.get("completed_at", ""),
         "duration_seconds": result.get("duration_seconds", 0),
         "categories": result.get("threat_categories", []),
         "threats_count": len(threats),
@@ -1817,6 +1855,7 @@ async def get_result(analysis_id: str, _auth=Depends(verify_api_key)):
         "raw_input": raw_input,
         "uploaded_files": uploaded_files,
         "system_description": result.get("system_description", ""),
+        "validation_result": result.get("validation_result", {}),
         "attack_tree_mermaid": attack_tree_mermaid,
         "components": result.get("components", []),
         "data_flows": result.get("data_flows", []),
@@ -2093,15 +2132,15 @@ async def download_justified_csv(analysis_id: str, _auth=Depends(verify_api_key)
     writer = csv.writer(output, quoting=csv.QUOTE_MINIMAL)
 
     writer.writerow([
-        "ID", "Escenario de Amenaza", "STRIDE", "Control de Amenaza",
-        "D", "R", "E", "A", "D", "DREAD Avg", "Prioridad",
-        "Estado", "Tratamiento de Riesgo", "Jira Ticket", "Observaciones",
-        "Confianza", "Fuentes de Evidencia",
-        "Decisión Justificación", "Razón Justificación",
-        "Justificado por", "Fecha Justificación",
+        "ID", "Threat Scenario", "STRIDE", "Threat Control",
+        "D", "R", "E", "A", "D", "DREAD Avg", "Priority",
+        "Status", "Risk Treatment", "Jira Ticket", "Observations",
+        "Confidence", "Evidence Sources",
+        "Justification Decision", "Justification Reason",
+        "Justified By", "Justification Date",
     ])
 
-    _PRIO_ES = {"Critical": "CRÍTICO", "High": "ALTO", "Medium": "MEDIO", "Low": "BAJO"}
+    _PRIO_ES = {"Critical": "CRITICAL", "High": "HIGH", "Medium": "MEDIUM", "Low": "LOW"}
 
     for t in threats:
         d = t.get("damage", 0)
@@ -2133,10 +2172,10 @@ async def download_justified_csv(analysis_id: str, _auth=Depends(verify_api_key)
         justif_at = ""
         if isinstance(justif, dict):
             _DECISION_ES = {
-                "FALSE_POSITIVE": "Falso Positivo",
-                "MITIGATED_BY_INFRA": "Mitigado por Infraestructura",
-                "ACCEPTED_RISK": "Riesgo Aceptado",
-                "NOT_APPLICABLE": "No Aplica",
+                "FALSE_POSITIVE": "False Positive",
+                "MITIGATED_BY_INFRA": "Mitigated by Infrastructure",
+                "ACCEPTED_RISK": "Accepted Risk",
+                "NOT_APPLICABLE": "Not Applicable",
             }
             justif_decision = _DECISION_ES.get(justif.get("decision", ""), justif.get("decision", ""))
             justif_reason = justif.get("reason_text", "")

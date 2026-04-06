@@ -68,7 +68,7 @@ class PipelineConfig(BaseModel):
     max_validation_iterations: int = 2
     enable_maestro: bool = True  # Solo se activa si el sistema tiene componentes AI
     output_format: str = "both"  # "csv" | "markdown" | "both"
-    output_language: str = "es"
+    output_language: str = "en"
     csv_schema: str = "auto"  # "auto" (detectar de previos) | "default"
 
     # Self-reflection: agents critique + revise their own output (improves quality)

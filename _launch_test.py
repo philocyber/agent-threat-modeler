@@ -16,7 +16,7 @@ payload = {
         "Panel admin con acceso restringido via VPN."
     ),
     "scan_mode": "deep",
-    "output_language": "es",
+    "output_language": "en",
     "categories": ["aws", "web", "privacy", "base"],
 }
 

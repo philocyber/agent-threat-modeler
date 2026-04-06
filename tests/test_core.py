@@ -40,7 +40,7 @@ class TestAgenticTMConfig:
     def test_default_pipeline(self):
         config = AgenticTMConfig()
         assert config.pipeline.max_debate_rounds == 4
-        assert config.pipeline.output_language == "es"
+        assert config.pipeline.output_language == "en"
 
     def test_default_rag(self):
         config = AgenticTMConfig()

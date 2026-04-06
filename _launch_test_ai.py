@@ -23,7 +23,7 @@ payload = {
         "Monitoreo: Datadog para métricas, Langfuse para tracing de LLM."
     ),
     "scan_mode": "deep",
-    "output_language": "es",
+    "output_language": "en",
     "categories": ["aws", "web", "privacy", "ai", "base"],
 }
 

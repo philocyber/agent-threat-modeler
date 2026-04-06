@@ -64,7 +64,7 @@
     "max_validation_iterations": 2,
     "enable_maestro": true,
     "output_format": "both",
-    "output_language": "es",
+    "output_language": "en",
     "self_reflection_enabled": false,
     "min_threats": 8,
     "max_threats": 40,
