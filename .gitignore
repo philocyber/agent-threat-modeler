@@ -16,16 +16,13 @@ env/
 data/
 output/
 
-# RAG sources — large binaries and user-specific data
-rag/books/*.pdf
-rag/research/*.pdf
-rag/previous_threat_models/*
-!rag/previous_threat_models/.gitkeep
-rag/ai_threats/*.pdf
-rag/ai_threats/*.json
-rag/risks_mitigations/*.csv
-!rag/risks_mitigations/threats.csv
-rag/risks_mitigations/*.json
+# RAG corpus — only ai_threats is committed
+rag/**
+!rag/
+!rag/**/
+!rag/ai_threats/**
+!rag/research/**
+!rag/**/.gitkeep
 
 # IDE / Editor
 .vscode/
