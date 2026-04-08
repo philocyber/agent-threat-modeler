@@ -202,11 +202,11 @@ class TestGraphBuilder:
         graph = build_graph(config, factory)
         assert graph is not None
 
-    def test_graph_has_13_nodes(self):
+    def test_graph_has_17_nodes(self):
         from agentictm.graph.builder import build_graph
         config, factory = self._make_factory()
         graph = build_graph(config, factory)
-        assert len(graph.nodes) == 14
+        assert len(graph.nodes) == 17
 
     def test_graph_node_names(self):
         from agentictm.graph.builder import build_graph
@@ -215,6 +215,7 @@ class TestGraphBuilder:
         expected = {
             "architecture_parser",
             "arch_clarifier",
+            "architecture_reviewer",
             "stride_analyst",
             "pasta_analyst",
             "attack_tree_analyst",
@@ -224,7 +225,9 @@ class TestGraphBuilder:
             "blue_team",
             "attack_tree_enriched",
             "threat_synthesizer",
+            "quality_judge",
             "dread_validator",
+            "hallucination_detector",
             "output_localizer",
             "report_generator",
         }

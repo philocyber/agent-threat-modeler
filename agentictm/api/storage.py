@@ -146,6 +146,54 @@ class ResultStore:
         await self._db.commit()
         return cursor.rowcount > 0
 
+    async def delete_many(self, analysis_ids: list[str]) -> int:
+        """Delete multiple results. Returns number of rows deleted."""
+        assert self._db is not None
+        if not analysis_ids:
+            return 0
+        placeholders = ",".join("?" for _ in analysis_ids)
+        cursor = await self._db.execute(
+            f"DELETE FROM results WHERE analysis_id IN ({placeholders})",
+            analysis_ids,
+        )
+        await self._db.commit()
+        return cursor.rowcount
+
+    async def list_paginated(
+        self, *, page: int = 1, page_size: int = 10
+    ) -> dict[str, Any]:
+        """Return paginated lightweight metadata.
+
+        Returns dict with keys: items, total, page, page_size, total_pages.
+        """
+        assert self._db is not None
+        total = await self.count()
+        total_pages = max(1, (total + page_size - 1) // page_size)
+        page = max(1, min(page, total_pages))
+        offset = (page - 1) * page_size
+
+        rows = []
+        async with self._db.execute(
+            "SELECT analysis_id, system_name, created_at, updated_at, output_dir "
+            "FROM results ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (page_size, offset),
+        ) as cursor:
+            async for row in cursor:
+                rows.append({
+                    "analysis_id": row[0],
+                    "system_name": row[1],
+                    "created_at": row[2],
+                    "updated_at": row[3],
+                    "output_dir": row[4],
+                })
+        return {
+            "items": rows,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages,
+        }
+
     async def count(self) -> int:
         """Return total number of stored results."""
         assert self._db is not None

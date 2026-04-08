@@ -1,8 +1,8 @@
-"""Agente: Architecture Clarifier.
+"""Agent: Architecture Clarifier.
 
-Genera preguntas específicas para el usuario cuando el modelo de arquitectura
-extraído inicialmente (Fase I) tiene una calidad baja o faltan detalles críticos.
-Permite el "ida y vuelta" solicitado por el usuario para guiarlo.
+Generates specific questions for the user when the architecture model
+initially extracted (Phase I) has low quality or is missing critical details.
+Enables the back-and-forth requested by the user to guide them.
 """
 
 from __future__ import annotations
@@ -50,42 +50,48 @@ Format:
 
 def run_arch_clarifier(state: ThreatModelState, llm: BaseChatModel) -> dict:
     """Generation node for clarification questions."""
-    
-    # Contexto de lo que ya sabemos y lo que nos falta
+    review = state.get("architecture_review", {}) if isinstance(state.get("architecture_review"), dict) else {}
+
+    # Context of what we already know and what we're missing
     summary = {
         "system_description": state.get("system_description", ""),
         "components_found": [c.get("name") for c in state.get("components", [])],
         "flows_found": len(state.get("data_flows", [])),
         "quality_score": state.get("quality_score", 0),
-        "input_type": state.get("input_type", "text")
+        "input_type": state.get("input_type", "text"),
+        "review_gaps": [g.get("finding") for g in review.get("gaps", []) if isinstance(g, dict)],
+        "clarification_focus": review.get("clarification_focus", []),
+        "inferred_components": [c.get("name") for c in review.get("inferred_components", []) if isinstance(c, dict)],
     }
-    
+
     user_prompt = (
-        f"The user wants to threat model their system. Here is what we extracted so far:\n\n"
+        f"The user wants to threat model their system. Here is what we extracted and reviewed so far:\n\n"
         f"MODEL SUMMARY:\n{json.dumps(summary, indent=2, ensure_ascii=False)}\n\n"
         f"USER ORIGINAL INPUT:\n{state.get('raw_input', '')[:5000]}\n\n"
-        f"Generate 3-5 specific clarifying questions to improve this model."
+        "Generate 3-5 specific clarifying questions that resolve the most important review gaps. "
+        "Prefer questions that confirm missing architecture details instead of inventing new components."
     )
-    
+
     logger.info("[Arch Clarifier] Generating questions | score=%d", summary["quality_score"])
-    
+
     messages = build_messages(CLARIFIER_SYSTEM_PROMPT, user_prompt)
     response = llm.invoke(messages)
     content = ensure_str_content(response.content) if hasattr(response, "content") else str(response)
-    
+
     parsed = extract_json_from_response(content)
     questions = []
     if parsed:
         questions = parsed.get("questions", [])
-        
+
     if not questions:
         # Fallback simplistic questions
         questions = [
-            "¿Podrías dar más detalles sobre los componentes principales del sistema?",
-            "¿Cómo se autentican los usuarios y cómo fluye la información entre los servicios?",
-            "¿Qué tecnologías específicas estás utilizando (lenguajes, bases de datos)?",
+            "Could you provide more details about the main components of the system?",
+            "How do users authenticate and how does information flow between services?",
+            "What specific technologies are you using (languages, databases)?",
         ]
 
     return {
         "clarification_questions": questions,
+        "clarification_needed": True,
     }

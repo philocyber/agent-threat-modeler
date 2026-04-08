@@ -204,7 +204,7 @@ function startBackend() {
     if (!IS_DEV) {
       env.AGENTICTM_DATA_DIR = path.join(app.getPath('userData'), 'data');
       env.AGENTICTM_OUTPUT = path.join(app.getPath('userData'), 'output');
-      env.AGENTICTM_KB_DIR = path.join(PROJECT_ROOT, 'knowledge_base');
+      env.AGENTICTM_KB_DIR = path.join(PROJECT_ROOT, 'rag');
     }
     if (IS_DEV) {
       const venvSitePackages = path.join(PROJECT_ROOT, '.venv', 'lib');

@@ -33,7 +33,7 @@
 - [Architecture](#architecture)
 - [Quick Start](#quick-start)
 - [Configuration](#configuration)
-- [Knowledge Base and RAG](#knowledge-base-and-rag)
+- [RAG Sources](#rag-sources)
 - [Usage](#usage)
 - [Outputs](#outputs)
 - [Development](#development)
@@ -241,7 +241,7 @@ All settings can be overridden via environment variables:
 | `AGENTICTM_OLLAMA_URL` | Ollama API base URL | `http://localhost:11434` |
 | `AGENTICTM_OUTPUT_DIR` | Directory for analysis output | `./output` |
 | `AGENTICTM_DATA_DIR` | Directory for vector stores, memory DBs | `./data` |
-| `AGENTICTM_KB_DIR` | Knowledge base directory | `./knowledge_base` |
+| `AGENTICTM_KB_DIR` | RAG sources directory | `./rag` |
 | `AGENTICTM_API_KEY` | API authentication key (optional) | none |
 | `AGENTICTM_MAX_INPUT_LENGTH` | Max characters for input text | `100000` |
 | `AGENTICTM_MAX_UPLOAD_MB` | Max upload file size in MB | `10` |
@@ -253,14 +253,14 @@ All settings can be overridden via environment variables:
 
 ---
 
-## Knowledge Base and RAG
+## RAG Sources
 
 AgenticTM uses a Retrieval-Augmented Generation (RAG) system that enriches every agent's analysis with context from security literature, previous threat models, and AI threat databases.
 
 ### Directory structure
 
 ```text
-knowledge_base/
+rag/
 ├── books/                     # Security textbooks (PDF)
 ├── research/                  # Research papers and notes (MD, PDF)
 ├── ai_threats/                # AI/ML threat databases (PDF, JSON)
@@ -272,7 +272,7 @@ knowledge_base/
 
 ### Adding your own documents
 
-1. Place PDF, Markdown, CSV, or JSON files into the appropriate subdirectory under `knowledge_base/`
+1. Place PDF, Markdown, CSV, or JSON files into the appropriate subdirectory under `rag/`
 2. Re-index:
 
 ```bash
@@ -281,10 +281,10 @@ python cli.py index
 make index
 ```
 
-The indexer uses incremental hashing — only new or changed files are re-indexed. Analysis runs also auto-check for knowledge-base changes and re-index only what changed.
+The indexer uses incremental hashing — only new or changed files are re-indexed. Analysis runs also auto-check for RAG source changes and re-index only what changed.
 
 > [!IMPORTANT]
-> Keep customer threat models, generated `rag/` outputs, local IDE logs, and secrets out of git. The repository should contain only public sample or reference material.
+> Keep customer threat models, local IDE logs, and secrets out of git. The repository should contain only public sample or reference material.
 
 ### Supported file types
 
@@ -413,7 +413,7 @@ agentictm/
 electron/          # Electron desktop app shell
 docs/              # Detailed documentation (17 chapters)
 tests/             # Unit and integration tests
-knowledge_base/    # RAG source documents (gitignored data)
+rag/               # RAG source documents (gitignored data)
 ```
 
 </details>
@@ -428,7 +428,7 @@ knowledge_base/    # RAG source documents (gitignored data)
 | `ollama: command not found` | Ollama is not installed — it's a system-level binary, not a pip package. See [Prerequisites](#1-prerequisites) |
 | `model not found` | The model hasn't been pulled. Run `ollama pull <model>` (e.g., `ollama pull qwen3:4b`) |
 | Analysis is slow | Use `cascade` mode with a smaller model, or `hybrid` with `max_parallel_analysts: 2` |
-| No RAG context in results | Run `python cli.py index` after adding documents to `knowledge_base/` |
+| No RAG context in results | Run `python cli.py index` after adding documents to `rag/` |
 | Port 8000 already in use | Kill the process: `lsof -ti :8000 \| xargs kill -9`, or start on another port with `python run.py --port 8001` |
 | Empty threat list from synthesizer | Verify the LLM model is loaded. Run a simpler analysis first to confirm Ollama connectivity |
 
@@ -445,6 +445,6 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Acknowledgments
 
-AgenticTM is built and maintained by [PhiloCyber](https://philocyber.com) — a cybersecurity and AI security practice focused on practical, research-backed approaches to application security.
+AgenticTM is built and maintained by [PhiloCyber](https://philocyber.com) (Richie Prieto) — a Cybersecurity and AI security professional focused on practical, research-backed approaches to application security. If you have improvements ideas, suggestions, ways of doing this better please do not hesitate to contact me on linkedin or via [email](https://philocyber.com/contact).
 
 Built with [LangChain](https://langchain.com/), [LangGraph](https://github.com/langchain-ai/langgraph), [Ollama](https://ollama.com/), [FastAPI](https://fastapi.tiangolo.com/), and [ChromaDB](https://www.trychroma.com/).

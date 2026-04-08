@@ -66,7 +66,8 @@ curl -fsSL https://ollama.com/install.sh | sh
 
 # Descargar modelos (puede tardar según la conexión)
 ollama pull qwen3:4b                  # Quick Thinker — ~2.7 GB
-ollama pull qwen3.5:9b                # Deep + STRIDE/Debate/VLM — ~6.6 GB (9B)
+ollama pull gemma4:26b                # Deep Thinker — ~10 GB (MoE)
+ollama pull qwen3.5:9b                # STRIDE/Debate/VLM — ~6 GB
 ollama pull nomic-embed-text-v2-moe   # Embeddings — ~274 MB (8K, multilingual)
 
 # Verificar
@@ -84,7 +85,7 @@ python cli.py init
 
 Esto crea:
 ```
-knowledge_base/
+rag/
 ├── books/
 ├── research/
 ├── risks_mitigations/
@@ -98,7 +99,7 @@ config.json
 
 ### 6. Indexar Knowledge Base (Opcional pero Recomendado)
 
-Colocá tus documentos en las carpetas correspondientes de `knowledge_base/`, luego:
+Colocá tus documentos en las carpetas correspondientes de `rag/`, luego:
 
 ```bash
 python cli.py index
@@ -173,7 +174,7 @@ Output saved to: output/mi-sistema-24-02-2026-2130/
 python cli.py index
 
 # Custom path
-python cli.py index --path ./my_knowledge_base/
+python cli.py index --path ./my_rag/
 
 # Con verbose
 python cli.py index --verbose
@@ -183,7 +184,7 @@ python cli.py index --verbose
 
 | Flag | Short | Default | Descripción |
 |------|-------|---------|-------------|
-| `--path` | `-p` | `knowledge_base` | Path al directorio KB |
+| `--path` | `-p` | `./rag` | Path al directorio RAG |
 | `--config` | `-c` | `config.json` | Archivo de configuración |
 | `--verbose` | `-v` | `false` | Logging detallado |
 
@@ -415,7 +416,7 @@ services:
       - AGENTICTM_OLLAMA_URL=http://ollama:11434
     volumes:
       - ./config.json:/app/config.json:ro
-      - ./knowledge_base:/app/knowledge_base:ro
+      - ./rag:/app/rag:ro
       - ./output:/app/output
     depends_on:
       - ollama
@@ -429,6 +430,7 @@ docker exec -it agentictm-ollama-1 bash
 
 # Dentro del contenedor:
 ollama pull qwen3:4b
+ollama pull gemma4:26b
 ollama pull qwen3.5:9b
 ollama pull nomic-embed-text-v2-moe
 ```
@@ -452,7 +454,7 @@ docker run -p 8000:8000 \
 flowchart TD
     START["1  Instalar"] --> OLLAMA["2  Ollama +<br/>modelos"]
     OLLAMA --> INIT["3  python cli.py init"]
-    INIT --> KB["4  Agregar docs<br/>a knowledge_base/"]
+    INIT --> KB["4  Agregar docs<br/>a rag/"]
     KB --> INDEX["5  python cli.py index"]
     INDEX --> SERVER["6  python run.py"]
     SERVER --> INPUT["7  Describir sistema<br/>+ subir diagrama"]

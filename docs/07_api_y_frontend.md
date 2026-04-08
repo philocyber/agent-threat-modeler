@@ -118,15 +118,15 @@ Solo un provider puede estar habilitado por request. Si `cloud_providers` es `nu
 | `DELETE` | `/api/results/{id}/threats/{tid}/justify` | Elimina justificación | Sí | `{threat_id, message}` |
 | `PUT` | `/api/results/{id}/threats/{tid}/field` | Actualiza campo de amenaza | Sí | `{threat_id, field, value}` |
 
-### Knowledge Base (`tags=["Knowledge Base"]`)
+### RAG Sources (`tags=["RAG"]`)
 
 | Método | Path | Descripción | Auth | Response |
 |--------|------|-------------|------|----------|
-| `GET` | `/api/knowledge-base` | Lista documentos KB con estado de indexación | No | `{knowledge_base_path, total, indexed, stores}` |
-| `POST` | `/api/knowledge-base/upload` | Sube documento a KB | Sí | `{filename, category, size_bytes}` |
-| `DELETE` | `/api/knowledge-base/{cat}/{file}` | Elimina documento de KB | Sí | `{deleted, category}` |
-| `POST` | `/api/knowledge-base/reindex` | Dispara re-indexación | Sí | `{status, force, result}` |
-| `GET` | `/api/knowledge-base/categories` | Categorías KB con conteo de docs | No | `{categories[]}` |
+| `GET` | `/api/rag` | Lista documentos RAG con estado de indexación | No | `{rag_path, total, indexed, stores}` |
+| `POST` | `/api/rag/upload` | Sube documento a RAG | Sí | `{filename, category, size_bytes}` |
+| `DELETE` | `/api/rag/{cat}/{file}` | Elimina documento de RAG | Sí | `{deleted, category}` |
+| `POST` | `/api/rag/reindex` | Dispara re-indexación | Sí | `{status, force, result}` |
+| `GET` | `/api/rag/categories` | Categorías RAG con conteo de docs | No | `{categories[]}` |
 
 ### Observability (`tags=["Observability"]`)
 

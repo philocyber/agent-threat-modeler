@@ -29,7 +29,6 @@ COPY config.json.example ./config.json
 COPY run.py cli.py main.py ./
 
 # ── Copy data directories ──
-COPY knowledge_base/ ./knowledge_base/
 COPY rag/ ./rag/
 
 # ── Create writable directories ──

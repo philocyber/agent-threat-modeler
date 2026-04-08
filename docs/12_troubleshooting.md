@@ -215,7 +215,7 @@ AgenticTM/
 │   │   ├── tools.py                # 5 RAG tools, 6 tool sets
 │   │   └── categories.py           # 9 categories with keyword detection
 │   └── parsers/                    # Mermaid parser utilities
-├── knowledge_base/
+├── rag/
 │   ├── books/                      # Security PDFs
 │   ├── research/                   # Academic papers
 │   ├── risks_mitigations/          # CAPEC/CWE/NIST by category

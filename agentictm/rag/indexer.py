@@ -1,13 +1,15 @@
-"""Indexador de documentos a los vector stores + PageIndex tree builder."""
+"""Document indexer for vector stores + PageIndex tree builder."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
 import fitz  # PyMuPDF — replaces PyPDFLoader for PDFs
 
 from langchain_community.document_loaders import (
@@ -26,9 +28,177 @@ from agentictm.rag.page_index import (
 )
 
 if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
     from agentictm.rag import RAGStoreManager
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Semantic Text Splitter
+# ---------------------------------------------------------------------------
+
+_SENTENCE_RE = re.compile(r"(?<=[.!?])\s+|\n{2,}")
+_HEADING_RE = re.compile(r"^(#{1,6}\s+.+|[A-Z][A-Za-z0-9 /&:,-]{3,80})$", re.MULTILINE)
+
+
+class SemanticTextSplitter:
+    """Embedding-aware text splitter that finds natural breakpoints.
+
+    Strategy:
+      1. Split text into sentences.
+      2. Embed each sentence (via the RAG embedding model).
+      3. Merge consecutive sentences whose cosine similarity exceeds
+         *similarity_threshold* into a single chunk.
+      4. Respect *chunk_size* / *chunk_overlap* as soft guidelines
+         (the chunk won't be split mid-sentence, but very long sentences
+         are force-split via RecursiveCharacterTextSplitter).
+
+    Falls back to RecursiveCharacterTextSplitter when embeddings
+    are unavailable (no model loaded, import error, etc.).
+    """
+
+    def __init__(
+        self,
+        embeddings: Embeddings | None = None,
+        chunk_size: int = 1000,
+        chunk_overlap: int = 200,
+        similarity_threshold: float = 0.5,
+    ):
+        self._embeddings = embeddings
+        self._chunk_size = chunk_size
+        self._chunk_overlap = chunk_overlap
+        self._similarity_threshold = similarity_threshold
+        self._fallback = RecursiveCharacterTextSplitter(
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+            separators=["\n\n", "\n", ". ", " ", ""],
+        )
+
+    # ------------------------------------------------------------------
+
+    def split_documents(self, documents: list[Document]) -> list[Document]:
+        """Split a list of Documents using semantic chunking."""
+        all_chunks: list[Document] = []
+        for doc in documents:
+            all_chunks.extend(self._split_single(doc))
+        return all_chunks
+
+    def _split_single(self, doc: Document) -> list[Document]:
+        text = doc.page_content
+        if not text or not text.strip():
+            return []
+
+        parent_heading = self._extract_heading(text)
+
+        if self._embeddings is None:
+            chunks = self._fallback.split_documents([doc])
+            for c in chunks:
+                if parent_heading:
+                    c.metadata["parent_heading"] = parent_heading
+            return chunks
+
+        sentences = self._split_sentences(text)
+        if len(sentences) <= 1:
+            chunks = self._fallback.split_documents([doc])
+            for c in chunks:
+                if parent_heading:
+                    c.metadata["parent_heading"] = parent_heading
+            return chunks
+
+        try:
+            embeddings = self._embeddings.embed_documents(sentences)
+        except Exception as exc:
+            logger.debug("Embedding failed, using fallback splitter: %s", exc)
+            chunks = self._fallback.split_documents([doc])
+            for c in chunks:
+                if parent_heading:
+                    c.metadata["parent_heading"] = parent_heading
+            return chunks
+
+        return self._merge_by_similarity(
+            sentences, embeddings, doc.metadata, parent_heading,
+        )
+
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _split_sentences(text: str) -> list[str]:
+        """Split text into sentence-level fragments."""
+        parts = _SENTENCE_RE.split(text)
+        return [s.strip() for s in parts if s.strip()]
+
+    @staticmethod
+    def _extract_heading(text: str) -> str:
+        """Extract the first markdown/section heading from text."""
+        match = _HEADING_RE.search(text[:500])
+        return match.group(0).lstrip("# ").strip() if match else ""
+
+    @staticmethod
+    def _cosine_similarity(a: list[float], b: list[float]) -> float:
+        va, vb = np.array(a), np.array(b)
+        denom = np.linalg.norm(va) * np.linalg.norm(vb)
+        if denom == 0:
+            return 0.0
+        return float(np.dot(va, vb) / denom)
+
+    def _merge_by_similarity(
+        self,
+        sentences: list[str],
+        embeddings: list[list[float]],
+        base_metadata: dict[str, Any],
+        parent_heading: str,
+    ) -> list[Document]:
+        """Merge consecutive sentences into chunks based on embedding similarity."""
+        chunks: list[Document] = []
+        current: list[str] = [sentences[0]]
+        current_len = len(sentences[0])
+
+        for i in range(1, len(sentences)):
+            sim = self._cosine_similarity(embeddings[i - 1], embeddings[i])
+            sent_len = len(sentences[i])
+
+            if sim >= self._similarity_threshold and (current_len + sent_len) < self._chunk_size * 1.5:
+                current.append(sentences[i])
+                current_len += sent_len
+            else:
+                chunks.append(self._make_chunk(current, base_metadata, parent_heading))
+                overlap_sents = self._overlap_sentences(current)
+                current = overlap_sents + [sentences[i]]
+                current_len = sum(len(s) for s in current)
+
+        if current:
+            chunks.append(self._make_chunk(current, base_metadata, parent_heading))
+
+        force_split: list[Document] = []
+        for chunk in chunks:
+            if len(chunk.page_content) > self._chunk_size * 2:
+                force_split.extend(self._fallback.split_documents([chunk]))
+            else:
+                force_split.append(chunk)
+        return force_split
+
+    def _overlap_sentences(self, sentences: list[str]) -> list[str]:
+        """Return trailing sentences that fit within chunk_overlap chars."""
+        overlap: list[str] = []
+        total = 0
+        for s in reversed(sentences):
+            if total + len(s) > self._chunk_overlap:
+                break
+            overlap.insert(0, s)
+            total += len(s)
+        return overlap
+
+    @staticmethod
+    def _make_chunk(
+        sentences: list[str],
+        base_metadata: dict[str, Any],
+        parent_heading: str,
+    ) -> Document:
+        meta = {**base_metadata}
+        if parent_heading:
+            meta["parent_heading"] = parent_heading
+        return Document(page_content=" ".join(sentences), metadata=meta)
 
 # Default tree index output directory
 _DEFAULT_TREE_DIR = Path("data/page_indices")
@@ -38,7 +208,7 @@ _DEFAULT_HASH_MANIFEST = Path("data/vector_stores/.index_manifest.json")
 
 
 def _file_hash(path: Path) -> str:
-    """Hash rápido del contenido de un archivo."""
+    """Fast hash of a file's contents."""
     return hashlib.md5(path.read_bytes()).hexdigest()
 
 
@@ -62,7 +232,7 @@ def get_index_status(
     knowledge_base_path: Path,
     manifest_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Return indexing status for all knowledge base documents (I05).
+    """Return indexing status for all RAG source documents (I05).
 
     Returns dict with per-store status: {store: [{name, hash, indexed, changed}]}
     """
@@ -93,7 +263,7 @@ def get_index_status(
 
 
 def _load_file(path: Path) -> list[Document]:
-    """Carga un archivo según su extensión."""
+    """Load a file based on its extension."""
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
@@ -101,8 +271,29 @@ def _load_file(path: Path) -> list[Document]:
     if suffix in (".md", ".txt", ".rst"):
         return TextLoader(str(path), encoding="utf-8").load()
     if suffix == ".csv":
-        # Cargar cada fila como doc individual + el archivo completo
+        # Load each row as individual doc + the full file.
+        # For threats.csv specifically, enrich each row with
+        # threat_category (comma-separated) and threat_tipo metadata
+        # so vector search can filter results by technology domain.
         rows = CSVLoader(str(path), encoding="utf-8").load()
+
+        if path.name.lower() == "threats.csv":
+            try:
+                import csv as _csv
+                from agentictm.rag.categories import classify_threat as _classify
+                with open(path, encoding="utf-8", newline="") as _f:
+                    _csv_rows = list(_csv.DictReader(_f))
+                for row_doc, row_data in zip(rows, _csv_rows):
+                    titulo = row_data.get("Titulo", row_data.get("titulo", ""))
+                    desc = row_data.get("Descripcion", row_data.get("descripcion", ""))
+                    tipo = row_data.get("Tipo", row_data.get("tipo", ""))
+                    cats = sorted(_classify(titulo, desc))
+                    row_doc.metadata["threat_category"] = ",".join(cats)
+                    row_doc.metadata["threat_tipo"] = tipo
+                logger.info("threats.csv: enriched %d rows with category metadata", len(_csv_rows))
+            except Exception as _exc:
+                logger.warning("Could not enrich threats.csv metadata: %s", _exc)
+
         full = Document(
             page_content=path.read_text(encoding="utf-8"),
             metadata={"source": str(path), "type": "full_csv"},
@@ -246,6 +437,9 @@ def index_store(
     MD5 hash has changed (or are new) are re-indexed. Pass ``force=True``
     to re-index everything.
 
+    Uses SemanticTextSplitter (embedding-aware) when available, falling back
+    to RecursiveCharacterTextSplitter otherwise.
+
     Returns:
         Cantidad de chunks indexados.
     """
@@ -254,10 +448,11 @@ def index_store(
         source_dir.mkdir(parents=True, exist_ok=True)
         return 0
 
-    splitter = RecursiveCharacterTextSplitter(
+    embeddings = getattr(store_manager, "_embeddings", None)
+    splitter = SemanticTextSplitter(
+        embeddings=embeddings,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
-        separators=["\n\n", "\n", ". ", " ", ""],
     )
 
     store = store_manager.get_store(store_name)
@@ -312,7 +507,7 @@ def index_all(
     force: bool = False,
     manifest_path: Path | None = None,
 ) -> dict[str, int]:
-    """Indexa todas las carpetas de knowledge_base.
+    """Indexa todas las carpetas del directorio RAG.
 
     Builds both ChromaDB vector stores (for text chunks) AND
     PageIndex tree indices (for PDFs) — enabling hybrid retrieval.
@@ -321,7 +516,7 @@ def index_all(
     unless ``force=True``.
 
     Espera la siguiente estructura:
-        knowledge_base/
+        rag/
         ├── books/
         ├── research/
         ├── risks_mitigations/
@@ -356,9 +551,17 @@ def index_all(
     # Save updated manifest
     _save_hash_manifest(actual_manifest_path, manifest)
 
+    # Invalidate the direct threats catalog cache so changes to threats.csv
+    # are picked up immediately on the next rag_query_threats_catalog call.
+    try:
+        from agentictm.rag.threats_catalog import invalidate_cache as _invalidate_catalog
+        _invalidate_catalog()
+    except Exception:
+        pass
+
     # Build PageIndex trees for all PDFs
     try:
-        tree_count = build_trees_for_knowledge_base(
+        tree_count = build_trees_for_rag(
             knowledge_base_path, actual_tree_dir, llm=llm,
         )
     except Exception:
@@ -372,13 +575,13 @@ def index_all(
 # PageIndex tree building
 # ---------------------------------------------------------------------------
 
-def build_trees_for_knowledge_base(
+def build_trees_for_rag(
     knowledge_base_path: Path,
     tree_dir: Path,
     llm: Any | None = None,
     generate_summaries: bool = True,
 ) -> int:
-    """Build PageIndex trees for all PDFs in the knowledge base.
+    """Build PageIndex trees for all PDFs in the RAG sources directory.
 
     Only rebuilds trees for PDFs that have changed since last indexing
     (uses MD5 hash for cache invalidation).
@@ -389,7 +592,7 @@ def build_trees_for_knowledge_base(
 
     pdf_files = sorted(knowledge_base_path.rglob("*.pdf"))
     if not pdf_files:
-        logger.info("[PageIndex] No PDF files found in knowledge base")
+        logger.info("[PageIndex] No PDF files found in RAG sources")
         return 0
 
     logger.info("[PageIndex] Found %d PDFs to index", len(pdf_files))
@@ -421,5 +624,3 @@ def build_trees_for_knowledge_base(
 
     logger.info("[PageIndex] Built %d new trees (%d total PDFs)", built, len(pdf_files))
     return built
-
-    return results

@@ -20,11 +20,12 @@ import json
 import logging
 import threading
 import time
+from functools import wraps
 from datetime import datetime, timezone
 from typing import Any
 
 
-# Thread-local storage for correlation IDs
+# Thread-local storage for per-analysis logging context
 _context = threading.local()
 
 
@@ -46,6 +47,56 @@ def set_agent_name(agent_name: str) -> None:
 def get_agent_name() -> str:
     """Get the current agent name for the current thread."""
     return getattr(_context, "agent_name", "")
+
+
+def get_logging_context() -> dict[str, str]:
+    """Capture the current thread logging context for propagation."""
+    return {
+        "correlation_id": get_correlation_id(),
+        "agent_name": get_agent_name(),
+    }
+
+
+def set_logging_context(context: dict[str, str] | None) -> None:
+    """Restore a previously captured logging context on the current thread."""
+    context = context or {}
+    corr = context.get("correlation_id", "")
+    agent = context.get("agent_name", "")
+    if corr:
+        _context.correlation_id = corr
+    elif hasattr(_context, "correlation_id"):
+        delattr(_context, "correlation_id")
+    if agent:
+        _context.agent_name = agent
+    elif hasattr(_context, "agent_name"):
+        delattr(_context, "agent_name")
+
+
+def with_logging_context(fn):
+    """Wrap a callable so it runs with the current logging context."""
+    context = get_logging_context()
+
+    @wraps(fn)
+    def _wrapped(*args, **kwargs):
+        previous = get_logging_context()
+        set_logging_context(context)
+        try:
+            return fn(*args, **kwargs)
+        finally:
+            set_logging_context(previous)
+
+    return _wrapped
+
+
+class _ContextInjectionFilter(logging.Filter):
+    """Attach current thread logging context to each record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if not getattr(record, "correlation_id", None):
+            record.correlation_id = get_correlation_id()
+        if not getattr(record, "agent_name", None):
+            record.agent_name = get_agent_name()
+        return True
 
 
 class StructuredFormatter(logging.Formatter):
@@ -75,12 +126,12 @@ class StructuredFormatter(logging.Formatter):
         }
 
         # Add correlation ID if set
-        correlation_id = get_correlation_id()
+        correlation_id = getattr(record, "correlation_id", None) or get_correlation_id()
         if correlation_id:
             log_data["correlation_id"] = correlation_id
 
         # Add agent name if set
-        agent_name = get_agent_name()
+        agent_name = getattr(record, "agent_name", None) or get_agent_name()
         if agent_name:
             log_data["agent"] = agent_name
 
@@ -120,10 +171,10 @@ class HumanReadableFormatter(logging.Formatter):
         color = self.COLORS.get(record.levelname, "")
         reset = self.RESET
 
-        correlation_id = get_correlation_id()
+        correlation_id = getattr(record, "correlation_id", None) or get_correlation_id()
         cid_part = f" [{correlation_id}]" if correlation_id else ""
 
-        agent_name = get_agent_name()
+        agent_name = getattr(record, "agent_name", None) or get_agent_name()
         agent_part = f" [{agent_name}]" if agent_name else ""
 
         timestamp = datetime.fromtimestamp(record.created).strftime("%H:%M:%S.%f")[:-3]
@@ -188,7 +239,9 @@ def configure_logging(
         handler.setFormatter(HumanReadableFormatter())
 
     handler.setLevel(level)
+    handler.addFilter(_ContextInjectionFilter())
     root_logger.addHandler(handler)
+    root_logger.addFilter(_ContextInjectionFilter())
     root_logger.setLevel(level)
 
     # Don't propagate to root logger (avoids duplicate output from

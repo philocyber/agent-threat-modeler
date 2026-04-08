@@ -1,4 +1,4 @@
-"""Agentes: Red Team + Blue Team Debaters — Fase III: Debate Adversarial Estructurado.
+"""Agents: Red Team + Blue Team Debaters — Phase III: Structured Adversarial Debate.
 
 "Analysis-First Structured Debate":
   Round 1: Each team builds an independent threat assessment grounded in ALL
@@ -344,8 +344,8 @@ Valid actions: ESCALATE (raise severity), CONFIRM (agree with current severity),
 
 ## CONVERGENCE SIGNAL (MANDATORY — place as the very LAST line of your response,
 AFTER the JSON block):
-- If you found NEW attack vectors not discussed in previous rounds: `[NUEVOS VECTORES]`
-- If all major vectors have been covered and you have nothing substantially new: `[CONVERGENCIA]`
+- If you found NEW attack vectors not discussed in previous rounds: `[NEW VECTORS]`
+- If all major vectors have been covered and you have nothing substantially new: `[CONVERGED]` (also accepted: `[CONVERGENCIA]`)
 """
 
 
@@ -390,7 +390,7 @@ def run_red_team(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: Red Team Debater (structured assessment)."""
+    """LangGraph node: Red Team Debater (structured assessment)."""
     current_round = state.get("debate_round", 1)
     logger.info("[Red Team] Round %d starting...", current_round)
 
@@ -524,7 +524,7 @@ def run_blue_team(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: Blue Team Debater (structured verdicts)."""
+    """LangGraph node: Blue Team Debater (structured verdicts)."""
     current_round = state.get("debate_round", 1)
     logger.info("[Blue Team] Round %d starting...", current_round)
 

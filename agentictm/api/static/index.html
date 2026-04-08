@@ -242,6 +242,128 @@
       color: var(--text3);
       text-transform: uppercase;
       letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .sidebar-bulk-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .sidebar-bulk-btn {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text3);
+      cursor: pointer;
+      font-size: 0.62rem;
+      padding: 2px 6px;
+      transition: all 0.15s;
+      text-transform: none;
+      letter-spacing: 0;
+      font-weight: 400;
+    }
+
+    .sidebar-bulk-btn:hover {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .sidebar-bulk-btn.danger {
+      color: #ffb3b3;
+      border-color: rgba(224, 82, 82, 0.5);
+    }
+
+    .sidebar-bulk-btn.danger:hover {
+      color: #fff;
+      border-color: var(--red);
+      background: rgba(224, 82, 82, 0.16);
+    }
+
+    .sidebar-bulk-btn.danger:disabled {
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .project-row.bulk-mode {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .project-checkbox {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 16px;
+      height: 16px;
+      min-width: 16px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg2);
+      cursor: pointer;
+      margin-top: 10px;
+      transition: all 0.15s;
+    }
+
+    .project-checkbox:checked {
+      background: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .project-checkbox:checked::after {
+      content: '\2713';
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: #fff;
+      line-height: 14px;
+    }
+
+    .sidebar-pagination {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      padding: 6px 8px;
+      border-top: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .sidebar-pagination button {
+      background: none;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text3);
+      cursor: pointer;
+      font-size: 0.72rem;
+      padding: 3px 8px;
+      min-width: 28px;
+      transition: all 0.15s;
+    }
+
+    .sidebar-pagination button:hover:not(:disabled) {
+      color: var(--accent);
+      border-color: var(--accent);
+    }
+
+    .sidebar-pagination button:disabled {
+      opacity: 0.3;
+      cursor: default;
+    }
+
+    .sidebar-pagination button.active-page {
+      color: var(--accent);
+      border-color: var(--accent);
+      font-weight: 700;
+    }
+
+    .sidebar-pagination .page-info {
+      font-size: 0.68rem;
+      color: var(--text3);
     }
 
     .sidebar-brand-bottom {
@@ -1028,6 +1150,10 @@
       border-bottom-color: var(--accent);
     }
 
+    .tab.tab-debate {
+      min-width: 170px;
+    }
+
     .tab-content {
       flex: 1;
       overflow-y: auto;
@@ -1213,6 +1339,98 @@
       animation: pulse 1.5s infinite;
     }
 
+    .debate-thinking-body {
+      padding: 12px;
+      max-height: none !important;
+    }
+
+    .debate-live-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .debate-live-pane {
+      min-width: 0;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--bg2);
+      overflow: hidden;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+    }
+
+    .debate-live-pane.red {
+      background: rgba(224, 82, 82, 0.04);
+      border-color: rgba(224, 82, 82, 0.2);
+    }
+
+    .debate-live-pane.blue {
+      background: rgba(88, 166, 255, 0.04);
+      border-color: rgba(88, 166, 255, 0.2);
+    }
+
+    .debate-live-pane.active.red {
+      border-color: rgba(224, 82, 82, 0.95);
+      box-shadow: 0 0 0 1px rgba(224, 82, 82, 0.5), 0 0 18px rgba(224, 82, 82, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .debate-live-pane.active.blue {
+      border-color: rgba(88, 166, 255, 0.95);
+      box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.5), 0 0 18px rgba(88, 166, 255, 0.35);
+      transform: translateY(-1px);
+    }
+
+    .debate-live-pane-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .debate-live-pane.red .debate-live-pane-header {
+      color: var(--red);
+    }
+
+    .debate-live-pane.blue .debate-live-pane-header {
+      color: #58a6ff;
+    }
+
+    .debate-live-level {
+      color: var(--text3);
+      font-weight: 500;
+      font-size: 0.7rem;
+      margin-left: auto;
+    }
+
+    .debate-live-pane .time {
+      color: var(--text3);
+      font-size: 0.7rem;
+      margin-left: 6px;
+    }
+
+    .debate-live-body {
+      padding: 10px 12px;
+      font-size: 0.78rem;
+      line-height: 1.6;
+      color: var(--text2);
+      min-height: 150px;
+      max-height: 360px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .debate-live-summary {
+      color: var(--text3);
+      font-weight: 500;
+      font-size: 0.72rem;
+      margin-left: 4px;
+    }
+
     @keyframes fadeSlideIn {
       from { opacity: 0; transform: translateY(-8px); }
       to   { opacity: 1; transform: translateY(0); }
@@ -1363,6 +1581,10 @@
       background: var(--green);
     }
 
+    .dot-debate {
+      background: var(--accent);
+    }
+
     .dot-default {
       background: var(--text3);
     }
@@ -1395,6 +1617,18 @@
       border-color: var(--accent);
       color: var(--accent);
       animation: pulse 1.5s infinite;
+    }
+
+    .pipe-node.pipe-node-red_team.active {
+      border-color: rgba(224, 82, 82, 0.95);
+      color: var(--red);
+      box-shadow: 0 0 0 1px rgba(224, 82, 82, 0.25), 0 0 14px rgba(224, 82, 82, 0.18);
+    }
+
+    .pipe-node.pipe-node-blue_team.active {
+      border-color: rgba(88, 166, 255, 0.95);
+      color: #58a6ff;
+      box-shadow: 0 0 0 1px rgba(88, 166, 255, 0.25), 0 0 14px rgba(88, 166, 255, 0.18);
     }
 
     .pipe-node.done {
@@ -1612,6 +1846,46 @@
       border: none;
       border-top: 1px solid var(--border);
       margin: 1em 0;
+    }
+
+    .debate-board {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .debate-round {
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--bg2);
+      padding: 14px;
+    }
+
+    .debate-round-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .debate-round-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      align-items: start;
+    }
+
+    .debate-entry-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 120px;
+      color: var(--text3);
+      font-size: 0.8rem;
+      border-style: dashed;
+      background: var(--bg3);
     }
 
     .downloads {
@@ -2431,6 +2705,11 @@
       .analytics-grid {
         grid-template-columns: 1fr;
       }
+
+      .debate-live-grid,
+      .debate-round-grid {
+        grid-template-columns: 1fr;
+      }
     }
 
     .chart-card {
@@ -2827,10 +3106,16 @@
       </svg>
       New analysis
     </button>
-    <div class="sidebar-section-label">Past analyses</div>
+    <div class="sidebar-section-label">
+      <span>Past analyses</span>
+      <div class="sidebar-bulk-actions" id="bulkActions">
+        <button class="sidebar-bulk-btn" id="bulkToggleBtn" onclick="toggleBulkMode()" title="Select multiple">☐</button>
+      </div>
+    </div>
     <div class="sidebar-projects" id="projectsList">
       <div style="color:var(--text3);font-size:0.78rem;padding:8px 12px;">No previous analyses yet.</div>
     </div>
+    <div class="sidebar-pagination" id="sidebarPagination" style="display:none"></div>
     <div class="sidebar-footer">
       <div class="sidebar-footer-meta">
         Powered by
@@ -3084,7 +3369,7 @@
         <div class="tab active" data-tab="live">Live Execution</div>
         <div class="tab" data-tab="threats">Threats</div>
         <div class="tab" data-tab="dfd">DFD</div>
-        <div class="tab" data-tab="debate">Debate</div>
+        <div class="tab tab-debate" data-tab="debate">Debate Red-Blue Team</div>
         <div class="tab" data-tab="report">Report</div>
         <div class="tab" data-tab="diagram">Diagrams</div>
         <div class="tab" data-tab="editor">DFD Editor</div>
@@ -3273,6 +3558,7 @@
       attack_tree_analyst: 'Attack Tree',
       maestro_analyst: 'MAESTRO',
       ai_threat_analyst: 'AI Threats',
+      debate: 'Debate',
       red_team: 'Red Team',
       blue_team: 'Blue Team',
       attack_tree_enriched: 'Enriched Trees',
@@ -3287,6 +3573,11 @@
     let _analysisStartTime = null;
     let _activeStatusPoll = null;
     let _recoveredEventCount = 0;
+    const DEBATE_AGENTS = new Set(['red_team', 'blue_team']);
+    const DEBATE_PIPELINE_NODE = 'debate';
+    const PIPELINE_DISPLAY_NODES = PIPELINE_NODES
+      .filter(node => node !== 'blue_team')
+      .map(node => node === 'red_team' ? DEBATE_PIPELINE_NODE : node);
 
     // ══════════════════════════════════════════════════════════════════
     // Categories
@@ -3474,21 +3765,27 @@
       document.getElementById('fullLogStream').innerHTML = '';
       document.getElementById('logStreamSection').classList.remove('open');
       document.getElementById('fullLogStream').classList.add('collapsed');
-      PIPELINE_NODES.forEach((node, i) => {
+      PIPELINE_DISPLAY_NODES.forEach((node, i) => {
         if (i > 0) { const a = document.createElement('span'); a.className = 'pipe-arrow'; a.textContent = '\u2192'; el.appendChild(a); }
         const n = document.createElement('span');
-        n.className = 'pipe-node';
+        n.className = 'pipe-node pipe-node-' + node;
         n.id = 'pipe-' + node;
         n.textContent = PIPELINE_LABELS[node];
         el.appendChild(n);
       });
     }
 
+    function getPipelineDisplayNode(agent) {
+      return isDebateAgent(agent) ? DEBATE_PIPELINE_NODE : agent;
+    }
+
     function updatePipelineNode(agent, status) {
-      const el = document.getElementById('pipe-' + agent);
+      const displayAgent = getPipelineDisplayNode(agent);
+      const el = document.getElementById('pipe-' + displayAgent);
       if (!el) return;
-      if (status === 'active') { el.classList.add('active'); el.classList.remove('done'); activeAgents.add(agent); }
-      else if (status === 'done') { el.classList.remove('active'); el.classList.add('done'); activeAgents.delete(agent); doneAgents.add(agent); }
+      if (displayAgent === DEBATE_PIPELINE_NODE && status === 'done' && agent === 'red_team' && !doneAgents.has('blue_team')) return;
+      if (status === 'active') { el.classList.add('active'); el.classList.remove('done'); activeAgents.add(displayAgent); }
+      else if (status === 'done') { el.classList.remove('active'); el.classList.add('done'); activeAgents.delete(displayAgent); doneAgents.add(agent); }
     }
 
     // ── Elapsed timer ──
@@ -3558,18 +3855,71 @@
     // ══════════════════════════════════════════════════════════════════
     // Thinking stream
     // ══════════════════════════════════════════════════════════════════
+    function isDebateAgent(agent) {
+      return DEBATE_AGENTS.has(agent);
+    }
+
+    function _appendThinkingLine(target, msg, level) {
+      const line = document.createElement('div');
+      line.style.marginBottom = '2px';
+      if (level === 'ERROR') line.style.color = 'var(--red)';
+      else if (level === 'WARNING') line.style.color = 'var(--orange)';
+      else if (level === 'DEBUG') line.style.color = 'var(--text3)';
+      line.textContent = msg;
+      target.appendChild(line);
+      target.scrollTop = target.scrollHeight;
+    }
+
+    function _createDebateThinkingBlock(time, level) {
+      const block = document.createElement('div');
+      block.className = 'thinking-block expanded';
+      block.id = 'think-debate';
+      block.innerHTML = `
+      <div class="thinking-header" onclick="toggleHistoryBlock('think-debate')">
+        <span class="agent-dot dot-debate"></span>
+        <span>Debate Red-Blue Team</span>
+        <span class="debate-live-summary">Waiting for Red/Blue activity</span>
+        <span class="time">${time}</span>
+      </div>
+      <div class="thinking-body debate-thinking-body">
+        <div class="debate-live-grid">
+          <div class="debate-live-pane red" data-side="red">
+            <div class="debate-live-pane-header">
+              <span class="agent-dot dot-red_team"></span>
+              <span>Red Team</span>
+              <span class="debate-live-level">${level}</span>
+              <span class="time">${time}</span>
+            </div>
+            <div class="debate-live-body"></div>
+          </div>
+          <div class="debate-live-pane blue" data-side="blue">
+            <div class="debate-live-pane-header">
+              <span class="agent-dot dot-blue_team"></span>
+              <span>Blue Team</span>
+              <span class="debate-live-level">${level}</span>
+              <span class="time">${time}</span>
+            </div>
+            <div class="debate-live-body"></div>
+          </div>
+        </div>
+      </div>`;
+      return block;
+    }
+
     function addThinkingEntry(event) {
       const activeArea = document.getElementById('activeAgentArea');
       const agent = event.agent || 'default';
+      const logOnlyAgent = agent === 'system';
+      const isDebate = isDebateAgent(agent);
+      const currentIsDebate = isDebateAgent(_currentActiveAgent);
       const label = event.agent ? (PIPELINE_LABELS[event.agent] || event.agent) : 'System';
       const time = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
       const level = event.level || 'INFO';
       const msg = event.message || '';
-      if (!msg.trim()) return;
+      const hasMessage = !!msg.trim();
 
-      // ── Append to unified log stream ──
       const logBody = document.getElementById('fullLogStream');
-      if (logBody) {
+      if (logBody && hasMessage) {
         const logLine = document.createElement('div');
         logLine.className = 'log-line' + (level === 'ERROR' ? ' log-error' : level === 'WARNING' ? ' log-warning' : '');
         logLine.innerHTML = `<span class="log-time">${time}</span> <span class="log-agent">[${label}]</span> ${_escapeHtml(msg)}`;
@@ -3579,24 +3929,29 @@
         }
       }
 
-      // ── Agent transition: move previous active to history ──
+      // Keep generic system messages in the canonical pipeline log only.
+      if (logOnlyAgent) return;
+
       if (agent !== _currentActiveAgent && agent !== 'default') {
-        if (_currentActiveAgent) {
+        if (_currentActiveAgent && !(isDebate && currentIsDebate)) {
           _moveActiveToHistory();
         }
         _currentActiveAgent = agent;
       }
 
-      // ── Create or find the thinking block ──
-      let blockId = 'think-' + agent;
+      let blockId = isDebate ? 'think-debate' : 'think-' + agent;
       let block = document.getElementById(blockId);
-      if (!block) {
-        block = document.createElement('div');
-        block.className = 'thinking-block expanded'; block.id = blockId;
-        const headerClick = agent === 'default'
-          ? `this.nextElementSibling.classList.toggle('collapsed')`
-          : `toggleHistoryBlock('${blockId}')`;
-        block.innerHTML = `
+      if (!block && (isDebate || hasMessage)) {
+        if (isDebate) {
+          block = _createDebateThinkingBlock(time, level);
+        } else {
+          block = document.createElement('div');
+          block.className = 'thinking-block expanded';
+          block.id = blockId;
+          const headerClick = agent === 'default'
+            ? `this.nextElementSibling.classList.toggle('collapsed')`
+            : `toggleHistoryBlock('${blockId}')`;
+          block.innerHTML = `
       <div class="thinking-header" onclick="${headerClick}">
         <span class="agent-dot dot-${agent}"></span>
         <span>${label}</span>
@@ -3604,6 +3959,7 @@
         <span class="time">${time}</span>
       </div>
       <div class="thinking-body"></div>`;
+        }
         if (agent === 'default') {
           const history = document.getElementById('agentHistory');
           history.prepend(block);
@@ -3612,19 +3968,30 @@
           activeArea.appendChild(block);
         }
       }
-      const body = block.querySelector('.thinking-body');
-      const line = document.createElement('div');
-      line.style.marginBottom = '2px';
-      if (level === 'ERROR') line.style.color = 'var(--red)';
-      else if (level === 'WARNING') line.style.color = 'var(--orange)';
-      else if (level === 'DEBUG') line.style.color = 'var(--text3)';
-      line.textContent = msg;
-      body.appendChild(line);
-      const timeEl = block.querySelector('.time');
-      if (timeEl) timeEl.textContent = time;
-      body.scrollTop = body.scrollHeight;
 
-      // Update pipeline state
+      if (isDebate) {
+        const side = agent === 'red_team' ? 'red' : 'blue';
+        block.querySelectorAll('.debate-live-pane').forEach(pane => {
+          pane.classList.toggle('active', pane.dataset.side === side);
+        });
+        const summary = block.querySelector('.debate-live-summary');
+        if (summary) summary.textContent = `${side === 'red' ? 'Red Team' : 'Blue Team'} active`;
+        const outerTime = block.querySelector('.thinking-header .time');
+        if (outerTime) outerTime.textContent = time;
+        const pane = block.querySelector(`.debate-live-pane.${side}`);
+        const paneBody = pane ? pane.querySelector('.debate-live-body') : null;
+        const paneLevel = pane ? pane.querySelector('.debate-live-level') : null;
+        const paneTime = pane ? pane.querySelector('.time') : null;
+        if (hasMessage && paneBody) _appendThinkingLine(paneBody, msg, level);
+        if (paneLevel) paneLevel.textContent = level;
+        if (paneTime) paneTime.textContent = time;
+      } else if (hasMessage && block) {
+        const body = block.querySelector('.thinking-body');
+        _appendThinkingLine(body, msg, level);
+        const timeEl = block.querySelector('.time');
+        if (timeEl) timeEl.textContent = time;
+      }
+
       if (event.agent && PIPELINE_NODES.includes(event.agent)) {
         const idx = PIPELINE_NODES.indexOf(event.agent);
         if (!doneAgents.has(event.agent)) {
@@ -4989,15 +5356,20 @@
     }
 
     // ══════════════════════════════════════════════════════════════════
-    // Past analyses — localStorage + server persistence
+    // Past analyses — localStorage + server persistence + pagination
     // ══════════════════════════════════════════════════════════════════
     const STORAGE_KEY = 'agentictm_past_analyses';
+    const PAGE_SIZE = 10;
+    let _currentPage = 1;
+    let _totalPages = 1;
+    let _bulkMode = false;
+    let _selectedIds = new Set();
+
     function loadPastAnalysesLocal() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch { return []; } }
     let pastAnalyses = loadPastAnalysesLocal().filter(p => p.status !== 'running');
     function savePastAnalyses() { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(pastAnalyses)); } catch { } }
 
     function savePastAnalysis(id, name, threats, meta = {}) {
-      // Remove any existing entry (including running ones) with this ID or running status
       pastAnalyses = pastAnalyses.filter(p => p.id !== id && p.status !== 'running');
       pastAnalyses.unshift({
         id,
@@ -5010,12 +5382,12 @@
         completed_at: meta.completed_at || null,
         duration_seconds: typeof meta.duration_seconds === 'number' ? meta.duration_seconds : 0,
       });
-      if (pastAnalyses.length > 50) pastAnalyses.pop();
+      if (pastAnalyses.length > 200) pastAnalyses.pop();
       savePastAnalyses();
+      _currentPage = 1;
       renderPastAnalyses();
     }
 
-    // Merge server-side results with localStorage and remove stale entries
     async function syncPastAnalyses() {
       try {
         const resp = await apiFetch('/api/results');
@@ -5023,7 +5395,6 @@
         const serverItems = await resp.json();
         const serverIds = new Set(serverItems.map(s => s.analysis_id));
 
-        // Add server entries that aren't in localStorage yet
         const existingIds = new Set(pastAnalyses.map(p => p.id));
         for (const s of serverItems) {
           if (!existingIds.has(s.analysis_id)) {
@@ -5041,8 +5412,6 @@
           }
         }
 
-        // Remove localStorage entries the server no longer knows about
-        // (but keep entries that are currently running or have no ID yet)
         const before = pastAnalyses.length;
         pastAnalyses = pastAnalyses.filter(p => {
           if (p.status === 'running' || p.status === 'failed') return true;
@@ -5059,22 +5428,119 @@
       } catch { }
     }
 
+    // ── Bulk selection mode ──
+    function toggleBulkMode() {
+      _bulkMode = !_bulkMode;
+      _selectedIds.clear();
+      updateBulkUI();
+      renderPastAnalyses();
+    }
+
+    function updateBulkUI() {
+      const btn = document.getElementById('bulkToggleBtn');
+      const actions = document.getElementById('bulkActions');
+      if (_bulkMode) {
+        btn.textContent = '✕';
+        btn.title = 'Cancel selection';
+        if (!document.getElementById('bulkSelectAllBtn')) {
+          const selAll = document.createElement('button');
+          selAll.id = 'bulkSelectAllBtn';
+          selAll.className = 'sidebar-bulk-btn';
+          selAll.textContent = 'All';
+          selAll.title = 'Select all on this page';
+          selAll.onclick = () => selectAllOnPage();
+          actions.insertBefore(selAll, btn);
+
+          const delBtn = document.createElement('button');
+          delBtn.id = 'bulkDeleteBtn';
+          delBtn.className = 'sidebar-bulk-btn danger';
+          delBtn.textContent = '🗑 Delete (0)';
+          delBtn.disabled = true;
+          delBtn.onclick = () => openBulkDeleteModal();
+          actions.insertBefore(delBtn, btn);
+        }
+      } else {
+        btn.textContent = '☐';
+        btn.title = 'Select multiple';
+        const selAll = document.getElementById('bulkSelectAllBtn');
+        const delBtn = document.getElementById('bulkDeleteBtn');
+        if (selAll) selAll.remove();
+        if (delBtn) delBtn.remove();
+      }
+    }
+
+    function selectAllOnPage() {
+      const start = (_currentPage - 1) * PAGE_SIZE;
+      const pageItems = pastAnalyses.slice(start, start + PAGE_SIZE);
+      const completedOnPage = pageItems.filter(p => p.status !== 'running');
+      const allSelected = completedOnPage.every(p => _selectedIds.has(p.id));
+      if (allSelected) {
+        completedOnPage.forEach(p => _selectedIds.delete(p.id));
+      } else {
+        completedOnPage.forEach(p => _selectedIds.add(p.id));
+      }
+      updateBulkDeleteCount();
+      renderPastAnalyses();
+    }
+
+    function toggleSelectAnalysis(id) {
+      if (_selectedIds.has(id)) _selectedIds.delete(id);
+      else _selectedIds.add(id);
+      updateBulkDeleteCount();
+      renderPastAnalyses();
+    }
+
+    function updateBulkDeleteCount() {
+      const btn = document.getElementById('bulkDeleteBtn');
+      if (btn) {
+        btn.textContent = `🗑 Delete (${_selectedIds.size})`;
+        btn.disabled = _selectedIds.size === 0;
+      }
+    }
+
+    function openBulkDeleteModal() {
+      if (_selectedIds.size === 0) return;
+      document.getElementById('deleteModalText').innerHTML =
+        `¿Seguro que deseas eliminar <strong>${_selectedIds.size} análisis</strong>?<br>` +
+        'Se borrarán también los archivos asociados a estos análisis.';
+      pendingDeleteProject = { _bulk: true, ids: [..._selectedIds] };
+      document.getElementById('deleteModal').classList.add('active');
+    }
+
     function renderPastAnalyses() {
       const el = document.getElementById('projectsList');
-      if (pastAnalyses.length === 0) {
+      const total = pastAnalyses.length;
+      _totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      if (_currentPage > _totalPages) _currentPage = _totalPages;
+
+      if (total === 0) {
         el.innerHTML = '<div style="color:var(--text3);font-size:0.78rem;padding:8px 12px;">No previous analyses yet.</div>';
+        renderPagination();
         return;
       }
+
+      const start = (_currentPage - 1) * PAGE_SIZE;
+      const pageItems = pastAnalyses.slice(start, start + PAGE_SIZE);
+
       el.innerHTML = '';
-      pastAnalyses.forEach(p => {
+      pageItems.forEach(p => {
         const row = document.createElement('div');
-        row.className = 'project-row';
+        row.className = 'project-row' + (_bulkMode ? ' bulk-mode' : '');
 
         const isRunning = p.status === 'running';
         const isFailed = p.status === 'failed';
         const isActive = (_inProgressAnalysis && _inProgressAnalysis.id === p.id)
           ? _isViewingRunningAnalysis()
           : (analysisId === p.id);
+
+        if (_bulkMode && !isRunning) {
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'project-checkbox';
+          cb.checked = _selectedIds.has(p.id);
+          cb.onclick = (ev) => { ev.stopPropagation(); toggleSelectAnalysis(p.id); };
+          row.appendChild(cb);
+        }
 
         const dotClass = isRunning ? 'running' : isFailed ? 'failed' : 'completed';
         const dot = `<span class="project-status-dot ${dotClass}"></span>`;
@@ -5086,9 +5552,12 @@
 
         const item = document.createElement('div');
         item.className = 'project-item' + (isActive ? ' active' : '');
+        item.style.flex = '1';
         item.innerHTML = `<div style="display:flex;align-items:center">${dot}<span>${escapeHtml(p.name)}</span></div><div class="project-date">${subtitle}</div>`;
 
-        if (isRunning) {
+        if (_bulkMode) {
+          item.onclick = () => { if (!isRunning) toggleSelectAnalysis(p.id); };
+        } else if (isRunning) {
           item.onclick = () => resumeRunningAnalysis();
         } else {
           item.onclick = () => loadProjectFromSidebar(p, 'threats');
@@ -5097,8 +5566,7 @@
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex;gap:2px;align-items:center;flex-shrink:0';
 
-        // Update (diff) button — only for completed analyses
-        if (!isRunning && !isFailed) {
+        if (!isRunning && !isFailed && !_bulkMode) {
           const upd = document.createElement('button');
           upd.className = 'project-delete';
           upd.title = 'Update / Version Comparison';
@@ -5108,22 +5576,76 @@
           actions.appendChild(upd);
         }
 
-        const del = document.createElement('button');
-        del.className = 'project-delete';
-        del.title = 'Eliminar análisis';
-        del.innerHTML = '🗑';
-        del.onclick = (ev) => openDeleteModal(p, ev);
+        if (!_bulkMode) {
+          const del = document.createElement('button');
+          del.className = 'project-delete';
+          del.title = 'Eliminar análisis';
+          del.innerHTML = '🗑';
+          del.onclick = (ev) => openDeleteModal(p, ev);
+          if (!isRunning) {
+            actions.appendChild(del);
+          }
+        }
 
         row.appendChild(item);
-        if (!isRunning) {
-          actions.appendChild(del);
+        if (!isRunning || !_bulkMode) {
           row.appendChild(actions);
         }
         el.appendChild(row);
       });
+
+      renderPagination();
     }
 
-    function loadProjectFromSidebar(project, tab = 'threats', push = true) {
+    function renderPagination() {
+      const pag = document.getElementById('sidebarPagination');
+      if (_totalPages <= 1) {
+        pag.style.display = 'none';
+        return;
+      }
+      pag.style.display = 'flex';
+      pag.innerHTML = '';
+
+      const prev = document.createElement('button');
+      prev.textContent = '‹';
+      prev.disabled = _currentPage <= 1;
+      prev.onclick = () => { _currentPage--; renderPastAnalyses(); };
+      pag.appendChild(prev);
+
+      const pages = [];
+      if (_totalPages <= 5) {
+        for (let i = 1; i <= _totalPages; i++) pages.push(i);
+      } else {
+        pages.push(1);
+        if (_currentPage > 3) pages.push('…');
+        for (let i = Math.max(2, _currentPage - 1); i <= Math.min(_totalPages - 1, _currentPage + 1); i++) pages.push(i);
+        if (_currentPage < _totalPages - 2) pages.push('…');
+        pages.push(_totalPages);
+      }
+
+      for (const pg of pages) {
+        if (pg === '…') {
+          const sp = document.createElement('span');
+          sp.className = 'page-info';
+          sp.textContent = '…';
+          pag.appendChild(sp);
+        } else {
+          const btn = document.createElement('button');
+          btn.textContent = pg;
+          if (pg === _currentPage) btn.className = 'active-page';
+          btn.onclick = () => { _currentPage = pg; renderPastAnalyses(); };
+          pag.appendChild(btn);
+        }
+      }
+
+      const next = document.createElement('button');
+      next.textContent = '›';
+      next.disabled = _currentPage >= _totalPages;
+      next.onclick = () => { _currentPage++; renderPastAnalyses(); };
+      pag.appendChild(next);
+    }
+
+        function loadProjectFromSidebar(project, tab = 'threats', push = true) {
       analysisId = project.id;
       currentProjectSlug = project.slug || project.id;
       document.getElementById('landing').classList.add('hidden');
@@ -5150,10 +5672,6 @@
       _startElapsedTimer(_inProgressAnalysis.started_at);
       _inProgressAnalysis.events.forEach(ev => addThinkingEntry(ev));
 
-      // Restore pipeline state
-      _inProgressAnalysis.pipelineDone.forEach(a => updatePipelineNode(a, 'done'));
-      _inProgressAnalysis.pipelineActive.forEach(a => updatePipelineNode(a, 'active'));
-
       showTab('live');
       renderPastAnalyses();
     }
@@ -5175,6 +5693,38 @@
     async function confirmDeleteAnalysis() {
       const project = pendingDeleteProject;
       if (!project) return closeDeleteModal();
+
+      // ── Bulk delete ──
+      if (project._bulk) {
+        const ids = project.ids;
+        try {
+          const resp = await apiFetch('/api/results/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ analysis_ids: ids }),
+          });
+          if (!resp.ok && resp.status !== 404) throw new Error(`bulk delete failed: ${resp.status}`);
+        } catch (e) {
+          console.warn('[BulkDelete] server error, removing from local state anyway:', e);
+        }
+        const idSet = new Set(ids);
+        pastAnalyses = pastAnalyses.filter(p => !idSet.has(p.id));
+        savePastAnalyses();
+        _selectedIds.clear();
+        updateBulkDeleteCount();
+        if (analysisId && idSet.has(analysisId)) {
+          analysisId = null;
+          currentProjectSlug = null;
+          resetToLanding();
+          history.pushState({ home: true }, '', '/home');
+        }
+        renderPastAnalyses();
+        showToast(`${ids.length} análisis eliminados.`, 'success');
+        closeDeleteModal();
+        return;
+      }
+
+      // ── Single delete ──
       try {
         const resp = await apiFetch(`/api/results/${project.id}`, { method: 'DELETE' });
         // 200 = deleted, 404 = already gone on server — both are fine, remove from local state
@@ -5751,6 +6301,40 @@
       await renderMermaidChart(c, mermaidCode);
     }
 
+    function formatDebateEntry(entry) {
+      const side = entry.side === 'red' ? 'red' : 'blue';
+      const sideLabel = side === 'red' ? 'Red Team' : 'Blue Team';
+      let arg = entry.argument || '';
+      arg = arg.replace(/<think>[\s\S]*?<\/think>/gi, '');
+      arg = arg.replace(/^[\s\S]*?<\/think>/i, '');
+      arg = arg.replace(/<think>[\s\S]*$/i, '');
+      arg = arg.replace(/\[CONVERGENCIA\]/g, '').replace(/\[NUEVOS VECTORES\]/g, '');
+      arg = arg.replace(/^\.SetString\s*/gm, '');
+      arg = arg.trim();
+
+      let htmlContent = '';
+      const jsonCandidate = arg.replace(/```json[\s\S]*?```/g, m => m.slice(7, -3)).trim();
+      let parsed = null;
+      if (jsonCandidate.startsWith('{') || jsonCandidate.startsWith('[')) {
+        try { parsed = JSON.parse(jsonCandidate); } catch (e) { parsed = null; }
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        htmlContent = renderDebateJson(parsed);
+      } else {
+        arg = arg.replace(/```json[\s\S]*?```/g, '');
+        arg = arg.trim();
+        if (typeof marked !== 'undefined') {
+          marked.setOptions({ breaks: true, gfm: true });
+          htmlContent = marked.parse(arg);
+        } else {
+          htmlContent = simpleMarkdown(arg);
+        }
+      }
+
+      return { side, sideLabel, htmlContent, round: entry.round };
+    }
+
     function renderDebate(debate) {
       const c = document.getElementById('debateContainer');
       if (!debate || !debate.length) { c.innerHTML = '<p style="color:var(--text2)">No se registró debate.</p>'; return; }
@@ -5775,49 +6359,35 @@
         note.innerHTML = `<span style="color:var(--accent);font-size:1.1rem">✓</span> El debate convergió en la ronda ${maxRound} de ${configuredRounds} configuradas. Ambos equipos alcanzaron consenso.`;
         c.appendChild(note);
       }
+      const board = document.createElement('div');
+      board.className = 'debate-board';
+      const rounds = new Map();
       deduped.forEach(entry => {
-        const d = document.createElement('div');
-        d.className = 'debate-entry ' + entry.side;
-        const sideLabel = entry.side === 'red' ? 'Red Team' : 'Blue Team';
-        let arg = entry.argument || '';
-        // Remove <think>...</think> blocks (sometimes emitted by qwen)
-        arg = arg.replace(/<think>[\s\S]*?<\/think>/gi, '');
-        // Remove orphaned </think> and any reasoning remnants before it
-        // (qwen3 chat template puts <think> in assistant prefix, so only </think> appears)
-        arg = arg.replace(/^[\s\S]*?<\/think>/i, '');
-        // Remove orphaned <think> at the end (model cut off before closing)
-        arg = arg.replace(/<think>[\s\S]*$/i, '');
-        // Remove convergence signals
-        arg = arg.replace(/\[CONVERGENCIA\]/g, '').replace(/\[NUEVOS VECTORES\]/g, '');
-        // Remove .SetString artifacts
-        arg = arg.replace(/^\.SetString\s*/gm, '');
-        arg = arg.trim();
-
-        let htmlContent = '';
-        // Try to detect raw JSON (the LLM sometimes returns only JSON without prose)
-        const jsonCandidate = arg.replace(/```json[\s\S]*?```/g, m => m.slice(7, -3)).trim();
-        let parsed = null;
-        if (jsonCandidate.startsWith('{') || jsonCandidate.startsWith('[')) {
-          try { parsed = JSON.parse(jsonCandidate); } catch (e) { parsed = null; }
-        }
-
-        if (parsed && typeof parsed === 'object') {
-          htmlContent = renderDebateJson(parsed);
-        } else {
-          // Remove fenced json blocks for markdown rendering
-          arg = arg.replace(/```json[\s\S]*?```/g, '');
-          arg = arg.trim();
-          if (typeof marked !== 'undefined') {
-            marked.setOptions({ breaks: true, gfm: true });
-            htmlContent = marked.parse(arg);
-          } else {
-            htmlContent = simpleMarkdown(arg);
-          }
-        }
-        d.innerHTML = `<div class="debate-header">${sideLabel} &mdash; Ronda ${entry.round}</div>
-      <div class="debate-body">${htmlContent}</div>`;
-        c.appendChild(d);
+        const formatted = formatDebateEntry(entry);
+        const round = formatted.round || 1;
+        if (!rounds.has(round)) rounds.set(round, { red: null, blue: null });
+        rounds.get(round)[formatted.side] = formatted;
       });
+      [...rounds.entries()].sort((a, b) => a[0] - b[0]).forEach(([round, sides]) => {
+        const row = document.createElement('section');
+        row.className = 'debate-round';
+        row.innerHTML = `<div class="debate-round-label">Round ${round}</div><div class="debate-round-grid"></div>`;
+        const grid = row.querySelector('.debate-round-grid');
+        ['red', 'blue'].forEach(side => {
+          const entry = sides[side];
+          const card = document.createElement('div');
+          if (entry) {
+            card.className = 'debate-entry ' + side;
+            card.innerHTML = `<div class="debate-header">${entry.sideLabel}</div><div class="debate-body">${entry.htmlContent}</div>`;
+          } else {
+            card.className = 'debate-entry debate-entry-empty ' + side;
+            card.textContent = side === 'red' ? 'Pending Red Team input for this round.' : 'Pending Blue Team response for this round.';
+          }
+          grid.appendChild(card);
+        });
+        board.appendChild(row);
+      });
+      c.appendChild(board);
     }
 
     /**

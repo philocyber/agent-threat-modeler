@@ -26,6 +26,7 @@ from agentictm.agents.threat_synthesizer import (
 )
 from agentictm.agents.pasta_analyst import _extract_threats_from_stages
 from agentictm.agents.report_generator import generate_csv, generate_markdown_report
+from agentictm.agents.synthesis.quality_gates import _filter_irrelevant_threats
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -344,6 +345,21 @@ class TestCategoryClassification:
             assert prefix in ("INF", "WEB", "PRI", "HUM"), \
                 f"E-commerce threat '{t['description'][:50]}' got unexpected prefix {prefix}"
 
+    @pytest.mark.parametrize("desc,allowed_prefixes", [
+        (
+            "Cross-tenant document access via IDOR on doc_id lets one customer read another tenant's files.",
+            {"WEB", "PRI"},
+        ),
+        (
+            "Race condition allows document download before malware scan updates CLEAN status in DynamoDB.",
+            {"WEB", "PRI"},
+        ),
+    ])
+    def test_docushare_app_logic_threats_not_classified_as_infrastructure(self, desc, allowed_prefixes):
+        cat = _classify_threat_category({"description": desc, "component": "AWS Lambda (API Handlers)"})
+        prefix = _CATEGORY_PREFIX_MAP.get(cat)
+        assert prefix in allowed_prefixes, f"DocuShare app-layer threat classified as {cat} ({prefix})"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. Category ID Assignment (unit)
@@ -607,6 +623,52 @@ class TestQualityGates:
         result = _apply_quality_gates(threats)
         assert result[0]["dread_total"] == 35
         assert result[0]["priority"] == "High"
+
+    def test_filter_drops_prompt_injection_for_non_ai_systems(self):
+        threats = [self._make_threat(
+            "Prompt injection in uploaded documents manipulates the model and bypasses guardrails to expose other users' data.",
+            component="AWS Lambda (API Handlers)",
+            methodology="STRIDE",
+            confidence_score=0.8,
+        )]
+        state = {
+            "system_description": "Serverless document sharing platform with API handlers, S3, and DynamoDB.",
+            "raw_input": "There are no AI, LLM, or agentic AI components in this system.",
+            "components": [{"name": "AWS Lambda (API Handlers)", "description": "Generates upload and sharing links."}],
+            "scope_notes": "",
+            "threat_surface_summary": "",
+        }
+        result = _filter_irrelevant_threats(threats, state)
+        assert result == []
+
+    def test_filter_preserves_tenant_isolation_threats_grounded_in_raw_input(self):
+        original = self._make_threat(
+            "An attacker changes doc_id values to access another tenant's documents because ownership checks only validate authentication, not tenant isolation.",
+            component="AWS Lambda (API Handlers)",
+            methodology="STRIDE",
+            confidence_score=0.82,
+            damage=8,
+            reproducibility=6,
+            exploitability=5,
+            affected_users=8,
+            discoverability=5,
+            dread_total=32,
+            priority="Medium",
+        )
+        state = {
+            "system_description": "Serverless document sharing platform on AWS.",
+            "raw_input": (
+                "Metadata includes doc_id, tenant_id, user_id, and status. "
+                "The system is multi-tenant and must preserve tenant isolation for authorized tenant users."
+            ),
+            "components": [{"name": "AWS Lambda (API Handlers)", "description": "Handles document metadata and share links."}],
+            "scope_notes": "Explicit application/workflow context:\n- Explicit business/data identifiers mentioned: doc_id, tenant_id, user_id, status.",
+            "threat_surface_summary": "Prioritize tenant-scoped access controls and direct-object access paths.",
+        }
+        result = _filter_irrelevant_threats([original.copy()], state)
+        assert len(result) == 1
+        assert result[0]["confidence_score"] == pytest.approx(0.82)
+        assert result[0]["dread_total"] == 32
 
 
 # ═══════════════════════════════════════════════════════════════════════════

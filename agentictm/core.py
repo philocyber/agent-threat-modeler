@@ -1,18 +1,20 @@
-"""AgenticTM — Entry point principal."""
+"""AgenticTM — Main entry point."""
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, AsyncIterator
 
 from agentictm.logging import set_correlation_id, PipelineFileHandler, TimingContext
 
 from agentictm.config import AgenticTMConfig
 from agentictm.llm import LLMFactory
+from agentictm.memory import MemoryManager
 from agentictm.rag import RAGStoreManager
 from agentictm.rag.categories import resolve_categories
 from agentictm.rag.tools import set_store_manager, set_active_categories
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class AgenticTM:
-    """Clase principal para ejecutar análisis de threat modeling."""
+    """Main class for running threat modeling analysis."""
 
     def __init__(self, config: AgenticTMConfig | None = None):
         self.config = config or AgenticTMConfig.load()
@@ -59,7 +61,16 @@ class AgenticTM:
         # instead of failing deep inside the pipeline.
         self._validate_ollama_models()
 
-        # Compilar el grafo
+        # Memory system
+        self._memory: MemoryManager | None = None
+        if self.config.memory.enabled:
+            try:
+                self._memory = MemoryManager(self.config.memory.db_path)
+                logger.info("Memory system enabled: %s", self.config.memory.db_path)
+            except Exception as exc:
+                logger.warning("Could not initialise memory system: %s", exc)
+
+        # Compile the graph
         from agentictm.graph.builder import compile_graph
         try:
             self._app = compile_graph(self.config, self.llm_factory)
@@ -129,7 +140,6 @@ class AgenticTM:
         _model_sizes_gb = {
             "qwen3:4b": 2.7,
             "qwen3.5:9b": 6.6,
-            "qwen3.5:9b": 6.6,
         }
         for role, model in ollama_models.items():
             size_gb = _model_sizes_gb.get(model)
@@ -141,14 +151,14 @@ class AgenticTM:
                 )
 
     def index_knowledge_base(self, force: bool = False) -> dict[str, int]:
-        """Indexa (o re-indexa) todos los stores del RAG + PageIndex trees.
+        """Index (or re-index) all RAG stores + PageIndex trees.
 
         Args:
             force: If True, re-index everything regardless of cache.
         """
         from agentictm.rag.indexer import index_all
 
-        logger.info("Indexing knowledge base from: %s", self.config.rag.knowledge_base_path)
+        logger.info("Indexing RAG sources from: %s", self.config.rag.knowledge_base_path)
 
         # Use quick_thinker for generating tree node summaries
         tree_llm = self.llm_factory.quick if self.config.rag.tree_summaries else None
@@ -167,7 +177,7 @@ class AgenticTM:
         return results
 
     def _sync_knowledge_base_if_needed(self) -> dict[str, Any]:
-        """Auto-index any new/changed KB documents before the analysis runs.
+        """Auto-index any new/changed RAG documents before the analysis runs.
 
         Performs an *incremental* index (only new/changed docs) so analysis
         always has the freshest RAG data without requiring a manual reindex.
@@ -182,11 +192,11 @@ class AgenticTM:
         has_changes = any((not d.get("indexed", False)) or d.get("changed", False) for d in docs)
 
         if not docs:
-            logger.info("Knowledge base is empty; skipping index sync.")
+            logger.info("RAG sources are empty; skipping index sync.")
             return {"checked": True, "changes_detected": False, "documents": 0, "indexed_now": False}
 
         if not has_changes:
-            logger.info("Knowledge base unchanged (%d docs); using existing indices.", len(docs))
+            logger.info("RAG sources unchanged (%d docs); using existing indices.", len(docs))
             return {"checked": True, "changes_detected": False, "documents": len(docs), "indexed_now": False}
 
         changed_count = sum(1 for d in docs if (not d.get("indexed", False)) or d.get("changed", False))
@@ -197,7 +207,7 @@ class AgenticTM:
         ][:5]
 
         logger.info(
-            "Knowledge base: %d/%d docs indexed. Auto-indexing %d new/changed docs (%s%s)...",
+            "RAG sources: %d/%d docs indexed. Auto-indexing %d new/changed docs (%s%s)...",
             indexed_count, len(docs), changed_count,
             ", ".join(changed_names),
             "..." if changed_count > 5 else "",
@@ -234,19 +244,20 @@ class AgenticTM:
         system_name: str = "System",
         threat_categories: list[str] | None = None,
         max_debate_rounds: int = 4,
+        correlation_id: str | None = None,
     ) -> dict[str, Any]:
-        """Ejecuta el análisis completo de threat modeling.
+        """Run the full threat modeling analysis.
 
         Args:
-            system_input: Descripción del sistema, diagrama Mermaid, o path a imagen.
-            system_name: Nombre del sistema para el reporte.
-            threat_categories: Override de categorías. None = usa config.
-            max_debate_rounds: Número de rondas de debate Red vs Blue (3–9).
+            system_input: System description, Mermaid diagram, or path to image.
+            system_name: System name for the report.
+            threat_categories: Category override. None = use config.
+            max_debate_rounds: Number of Red vs Blue debate rounds (3–9).
 
         Returns:
-            dict con keys: csv_output, report_output, threats_final, y todo el state.
+            dict with keys: csv_output, report_output, threats_final, and full state.
         """
-        # Keep KB indices fresh on every run (incremental; only changed docs are reindexed).
+        # Keep RAG indices fresh on every run (incremental; only changed docs are reindexed).
         try:
             self._sync_knowledge_base_if_needed()
         except Exception:
@@ -256,6 +267,16 @@ class AgenticTM:
         cats = threat_categories or self.config.pipeline.threat_categories
         resolved = resolve_categories(cats, system_input)
         set_active_categories(resolved)
+
+        # Recall past analysis context from memory
+        feedback_context = ""
+        if self._memory:
+            try:
+                feedback_context = self._memory.recall_relevant(
+                    system_name, system_input, top_k=5,
+                )
+            except Exception as exc:
+                logger.warning("Memory recall failed: %s", exc)
 
         initial_state: ThreatModelState = {
             "system_name": system_name,
@@ -268,10 +289,11 @@ class AgenticTM:
             "debate_history": [],
             "threat_categories": resolved,
             "executive_summary": "",
+            "feedback_context": feedback_context,
         }
 
         # Set correlation ID for structured logging
-        correlation_id = uuid.uuid4().hex[:12]
+        correlation_id = correlation_id or uuid.uuid4().hex[:12]
         set_correlation_id(correlation_id)
 
         # Attach per-analysis JSONL file handler
@@ -289,7 +311,7 @@ class AgenticTM:
         clear_agent_metrics()
 
         try:
-            # Ejecutar el grafo completo with timing
+            # Run the full graph with timing
             with TimingContext("full_pipeline", logger):
                 result = self._app.invoke(initial_state)
 
@@ -299,15 +321,77 @@ class AgenticTM:
                 threats_count, correlation_id, pipeline_log.log_path,
                 extra={"threats_count": threats_count},
             )
+
+            # Persist analysis outcome in memory
+            if self._memory:
+                try:
+                    self._memory.store_analysis_outcome(
+                        system_name,
+                        result.get("threats_final", []),
+                        feedback=result.get("validation_result"),
+                    )
+                except Exception as exc:
+                    logger.warning("Memory store failed: %s", exc)
+
             return result
         finally:
             pipeline_log.detach()
 
+    async def analyze_stream(
+        self,
+        system_input: str,
+        system_name: str = "System",
+        threat_categories: list[str] | None = None,
+        max_debate_rounds: int = 4,
+        correlation_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Stream analysis events including token-level output.
+
+        Yields dicts with at least a ``type`` key. Event types include:
+        - ``on_chain_start`` / ``on_chain_end`` — node lifecycle
+        - ``on_chat_model_stream`` — individual LLM token chunks
+        - ``on_chain_stream`` — partial state updates
+        """
+        cats = threat_categories or self.config.pipeline.threat_categories
+        resolved = resolve_categories(cats, system_input)
+        set_active_categories(resolved)
+
+        initial_state: ThreatModelState = {
+            "system_name": system_name,
+            "analysis_date": datetime.now().strftime("%Y-%m-%d"),
+            "raw_input": system_input,
+            "debate_round": 1,
+            "max_debate_rounds": max(0, min(9, max_debate_rounds)),
+            "iteration_count": 0,
+            "methodology_reports": [],
+            "debate_history": [],
+            "threat_categories": resolved,
+            "executive_summary": "",
+        }
+
+        correlation_id = correlation_id or uuid.uuid4().hex[:12]
+        set_correlation_id(correlation_id)
+
+        pipeline_log = PipelineFileHandler(correlation_id)
+        pipeline_log.attach()
+
+        logger.info("Starting streaming analysis for: %s (cid=%s)", system_name, correlation_id)
+        self.store_manager.clear_cache()
+
+        from agentictm.agents.base import clear_agent_metrics
+        clear_agent_metrics()
+
+        try:
+            async for event in self._app.astream_events(initial_state, version="v2"):
+                yield event
+        finally:
+            pipeline_log.detach()
+
     def save_output(self, result: dict, output_dir: Path | None = None) -> Path:
-        """Guarda los outputs (CSV + Markdown) a disco.
+        """Save outputs (CSV + Markdown) to disk.
 
         Returns:
-            Path del directorio de output.
+            Path to the output directory.
         """
         system_name = result.get("system_name", "system").replace(" ", "_").lower()
         date = result.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))

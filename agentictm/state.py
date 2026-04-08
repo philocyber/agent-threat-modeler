@@ -1,4 +1,4 @@
-"""Estado compartido del pipeline — LangGraph TypedDict."""
+"""Shared pipeline state — LangGraph TypedDict."""
 
 from __future__ import annotations
 
@@ -36,14 +36,14 @@ class Threat(TypedDict, total=False):
     component: str
     description: str
     methodology: str        # "STRIDE" | "PASTA" | "ATTACK_TREE" | "MAESTRO"
-    stride_category: str    # S | T | R | I | D | E  (si aplica)
+    stride_category: str    # S | T | R | I | D | E | A (ASTRIDE)
     attack_path: str
     damage: int             # DREAD 0-10
     reproducibility: int
     exploitability: int
     affected_users: int
     discoverability: int
-    dread_total: int        # Suma 5-50 (avg: Critical>=9, High>=7, Medium>=4, Low<4)
+    dread_total: int        # Sum 5-50 (avg: Critical>=9, High>=7, Medium>=4, Low<4)
     priority: str           # "Critical" | "High" | "Medium" | "Low"
     mitigation: str
     control_reference: str
@@ -67,26 +67,26 @@ class DebateEntry(TypedDict, total=False):
 
 
 # ---------------------------------------------------------------------------
-# Main State — fluye por todo el grafo LangGraph
+# Main State — flows through the entire LangGraph graph
 # ---------------------------------------------------------------------------
 
 class ThreatModelState(TypedDict, total=False):
-    """Estado compartido que fluye por el grafo LangGraph.
+    """Shared state flowing through the LangGraph pipeline.
 
-    Cada agente lee lo que necesita y escribe su sección.
-    Los campos con Annotated[list, operator.add] se acumulan
-    automáticamente cuando múltiples nodos los escriben en paralelo.
+    Each agent reads what it needs and writes its section.
+    Fields with Annotated[list, operator.add] accumulate
+    automatically when multiple nodes write in parallel.
     """
 
-    # ── Identificación ──
+    # ── Identification ──
     system_name: str
     analysis_date: str
 
-    # ── Input del usuario ──
+    # ── User input ──
     raw_input: str
     input_type: str  # "text" | "mermaid" | "image" | "drawio"
 
-    # ── Fase I — Modelo del sistema ──
+    # ── Phase I — System model ──
     system_description: str
     components: list[Component]
     data_flows: list[DataFlow]
@@ -96,43 +96,49 @@ class ThreatModelState(TypedDict, total=False):
     scope_notes: str
     mermaid_dfd: str
 
-    # ── Fase II — Reportes de metodologías (se acumulan en paralelo) ──
+    # ── Phase II — Methodology reports (accumulated in parallel) ──
     methodology_reports: Annotated[list[dict[str, Any]], operator.add]
-    # Cada dict: {"methodology": str, "agent": str, "report": str, "threats_raw": list[dict]}
+    # Each dict: {"methodology": str, "agent": str, "report": str, "threats_raw": list[dict]}
 
     # ── RAG Context ──
     rag_context: dict[str, str]
     previous_tm_context: str
     threat_categories: list[str]  # Active categories: "base", "aws", "ai", etc.
 
-    # ── Fase III — Debate ──
+    # ── Phase III — Debate ──
     debate_history: Annotated[list[DebateEntry], operator.add]
     debate_round: int
     max_debate_rounds: int  # per-request cap; defaults to config.pipeline.max_debate_rounds if absent
 
-    # ── Fase III — Síntesis ──
+    # ── Phase III — Synthesis ──
     threats_final: list[Threat]
     executive_summary: str
 
     # ── Localized debate (non-append, set by output_localizer) ──
     debate_history_localized: list[dict[str, Any]]
 
-    # ── Fase IV — Output ──
+    # ── Phase IV — Output ──
     csv_output: str
     report_output: str
 
-    # ── Control de flujo ──
+    # ── Flow control ──
     iteration_count: int
     validation_result: dict[str, Any]
 
     # ── Error tracking — accumulated from failed nodes (C07) ──
     _errors: Annotated[list[dict[str, Any]], operator.add]
 
-    # ── Memoria / Feedback ──
+    # ── Memory / Feedback ──
     feedback_context: str
 
-    # ── Clarificación de Arquitectura ──
+    # ── Architecture Clarification ──
     clarification_needed: bool
     clarification_questions: list[str]
     user_answers: list[str]
     quality_score: int
+
+    # ── Architecture Review (Phase I.5) ──
+    architecture_review: dict[str, Any]  # Full review results (gaps, inferred components, complexity, surfaces)
+    threat_surface_summary: str          # Analyst briefing text
+    system_complexity: str               # "simple" | "moderate" | "complex"
+    mandatory_threat_patterns: list[dict[str, Any]]  # [{pattern_id, name, description, keywords, stride_category}]

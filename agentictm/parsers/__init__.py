@@ -1,1 +1,1 @@
-"""Parsers de diagramas y texto."""
+"""Diagram and text parsers."""

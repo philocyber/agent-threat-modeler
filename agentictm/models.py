@@ -24,6 +24,7 @@ class StrideCategory(str, Enum):
     INFORMATION_DISCLOSURE = "I"
     DENIAL_OF_SERVICE = "D"
     ELEVATION_OF_PRIVILEGE = "E"
+    AGENT_THREAT = "A"  # ASTRIDE extension (arXiv:2512.04785) for agentic AI attacks
 
 
 class Priority(str, Enum):
@@ -202,12 +203,13 @@ class UnifiedThreat(BaseModel):
     @field_validator("stride_category")
     @classmethod
     def normalize_stride(cls, v: str) -> str:
-        if v and len(v) == 1 and v.upper() in "STRIDE":
+        if v and len(v) == 1 and v.upper() in "STRIDEA":
             return v.upper()
         full_map = {
             "spoofing": "S", "tampering": "T", "repudiation": "R",
             "information disclosure": "I", "denial of service": "D",
-            "elevation of privilege": "E",
+            "elevation of privilege": "E", "agent threat": "A",
+            "agent": "A", "agentic": "A",
         }
         return full_map.get(v.lower(), v)
 
@@ -229,6 +231,58 @@ class UnifiedThreat(BaseModel):
     def from_state_dict(cls, data: dict) -> "UnifiedThreat":
         """Create from a plain dict (e.g., from ThreatModelState)."""
         return cls.model_validate(data)
+
+
+# ---------------------------------------------------------------------------
+# Schema Boundary Layer — Pydantic ↔ TypedDict conversion utilities
+# ---------------------------------------------------------------------------
+
+def threat_to_dict(threat: UnifiedThreat) -> dict:
+    """Convert a Pydantic UnifiedThreat → plain dict for LangGraph state.
+
+    This is the canonical way to go from the validated Pydantic world into
+    the TypedDict-based ``ThreatModelState.threats_final`` list.  Ensures
+    all nested models (EvidenceSource, ThreatJustification) are serialized
+    to JSON-safe primitives (no datetime objects, no Pydantic models).
+    """
+    return threat.to_state_dict()
+
+
+def dict_to_threat(d: dict) -> UnifiedThreat:
+    """Convert a plain dict → validated Pydantic UnifiedThreat.
+
+    Use this when you need to apply Pydantic validation/normalization to
+    a threat dict coming from the LangGraph state or from raw LLM output.
+    Raises ``pydantic.ValidationError`` if the dict is invalid.
+    """
+    return UnifiedThreat.from_state_dict(d)
+
+
+def validate_state_threats(threats: list[dict]) -> list[dict]:
+    """Validate a list of threat dicts through Pydantic, returning cleaned dicts.
+
+    Each dict is round-tripped through ``UnifiedThreat`` validation:
+    1. Normalizes priority (e.g. "alto" → "High")
+    2. Normalizes stride_category (e.g. "spoofing" → "S")
+    3. Clamps DREAD scores to valid ranges (0-10 per dimension, 0-50 total)
+    4. Ensures all required fields have defaults
+
+    Invalid dicts are logged and skipped (never raises for individual items).
+    Returns only the successfully validated dicts.
+    """
+    import logging
+    _logger = logging.getLogger(__name__)
+    validated: list[dict] = []
+    for i, raw in enumerate(threats):
+        try:
+            model = UnifiedThreat.model_validate(raw)
+            validated.append(model.to_state_dict())
+        except Exception as exc:
+            _logger.warning(
+                "validate_state_threats: item %d failed validation: %s",
+                i, exc,
+            )
+    return validated
 
 
 # ---------------------------------------------------------------------------

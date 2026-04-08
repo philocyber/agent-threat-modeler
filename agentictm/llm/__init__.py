@@ -1,9 +1,8 @@
-"""LLM client factory — Ollama-first con fallback opcional a cloud."""
+"""LLM client factory — Ollama-first with optional cloud fallback."""
 
 from __future__ import annotations
 
 import sys
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from langchain_ollama import ChatOllama
@@ -14,14 +13,14 @@ if TYPE_CHECKING:
 
 
 def create_llm(cfg: LLMConfig, *, format_override: str | None = None) -> BaseChatModel:
-    """Crea un LLM client según el provider configurado.
+    """Create an LLM client based on the configured provider.
 
-    Providers soportados:
+    Supported providers:
       - "ollama"     → ChatOllama (local, default)
-      - "anthropic"  → ChatAnthropic (requiere langchain-anthropic)
-      - "google"     → ChatGoogleGenerativeAI (requiere langchain-google-genai)
-      - "openai"     → ChatOpenAI (requiere langchain-openai)
-      - "azure"      → AzureChatOpenAI (requiere langchain-openai)
+      - "anthropic"  → ChatAnthropic (requires langchain-anthropic)
+      - "google"     → ChatGoogleGenerativeAI (requires langchain-google-genai)
+      - "openai"     → ChatOpenAI (requires langchain-openai)
+      - "azure"      → AzureChatOpenAI (requires langchain-openai)
 
     Args:
         format_override: Override the config format (e.g. "json" for structured output).
@@ -78,7 +77,7 @@ def create_llm(cfg: LLMConfig, *, format_override: str | None = None) -> BaseCha
             from langchain_google_genai import ChatGoogleGenerativeAI
         except ImportError as exc:
             raise ImportError(
-                "pip install langchain-google-genai  para usar provider 'google'"
+                "pip install langchain-google-genai  to use provider 'google'"
             ) from exc
         return ChatGoogleGenerativeAI(
             model=cfg.model,
@@ -92,7 +91,7 @@ def create_llm(cfg: LLMConfig, *, format_override: str | None = None) -> BaseCha
             from langchain_openai import ChatOpenAI
         except ImportError as exc:
             raise ImportError(
-                "pip install langchain-openai  para usar provider 'openai'"
+                "pip install langchain-openai  to use provider 'openai'"
             ) from exc
         kw: dict = dict(
             model=cfg.model,
@@ -110,7 +109,7 @@ def create_llm(cfg: LLMConfig, *, format_override: str | None = None) -> BaseCha
             from langchain_openai import AzureChatOpenAI
         except ImportError as exc:
             raise ImportError(
-                "pip install langchain-openai  para usar provider 'azure'"
+                "pip install langchain-openai  to use provider 'azure'"
             ) from exc
         return AzureChatOpenAI(
             azure_deployment=cfg.model,
@@ -122,11 +121,11 @@ def create_llm(cfg: LLMConfig, *, format_override: str | None = None) -> BaseCha
             max_retries=cfg.max_retries,
         )
 
-    raise ValueError(f"Provider LLM no soportado: {cfg.provider}")
+    raise ValueError(f"Unsupported LLM provider: {cfg.provider}")
 
 
 class LLMFactory:
-    """Factory que cachea instancias de LLM por config hash."""
+    """Factory that caches LLM instances by config hash."""
 
     def __init__(self, quick_cfg: LLMConfig | object, deep_cfg: LLMConfig | None = None,
                  vlm_cfg: LLMConfig | None = None, stride_cfg: LLMConfig | None = None):
@@ -154,22 +153,22 @@ class LLMFactory:
 
     @property
     def quick(self) -> BaseChatModel:
-        """LLM rápido para analistas."""
+        """Fast LLM for analysts."""
         return self._get_or_create("quick", self._quick_cfg)
 
     @property
     def quick_json(self) -> BaseChatModel:
-        """LLM rápido con format=json para agentes que producen JSON estructurado."""
+        """Fast LLM with format=json for agents producing structured JSON."""
         return self._get_or_create("quick_json", self._quick_cfg, format_override="json")
 
     @property
     def deep(self) -> BaseChatModel:
-        """LLM más capaz para Threat Synthesizer y validación."""
+        """More capable LLM for Threat Synthesizer and validation."""
         return self._get_or_create("deep", self._deep_cfg)
 
     @property
     def deep_json(self) -> BaseChatModel:
-        """LLM deep con format=json para Synthesizer y DREAD Validator."""
+        """Deep LLM with format=json for Synthesizer and DREAD Validator."""
         return self._get_or_create("deep_json", self._deep_cfg, format_override="json")
 
     @property
@@ -184,5 +183,5 @@ class LLMFactory:
 
     @property
     def vlm(self) -> BaseChatModel:
-        """Vision Language Model para parsing de imágenes."""
+        """Vision Language Model for image parsing."""
         return self._get_or_create("vlm", self._vlm_cfg)

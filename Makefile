@@ -221,7 +221,7 @@ clean: ## Remove Python cache files
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "$(_GREEN)[OK]$(_RESET) Cache cleaned"
 
-nuke: clean ## Remove venv + data (keeps knowledge_base & config)
+nuke: clean ## Remove venv + data (keeps rag/ & config)
 	@echo "$(_YELLOW)This will remove:$(_RESET)"
 	@echo "  - $(VENV)/ (virtual environment)"
 	@echo "  - data/ (vector stores, results DB)"

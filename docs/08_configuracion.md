@@ -58,7 +58,7 @@ El archivo `config.json` en la raíz del proyecto controla toda la configuració
     "num_gpu": -1
   },
   "rag": {
-    "knowledge_base_path": "knowledge_base",
+    "knowledge_base_path": "./rag",
     "vector_store_path": "data/vector_stores",
     "page_index_path": "data/page_indices",
     "embedding_provider": "ollama",
@@ -131,7 +131,7 @@ Aplica a cada uno de los 4 tiers: `quick_thinker`, `deep_thinker`, `stride_think
 
 | Campo | Tipo | Default | Descripción |
 |-------|------|---------|-------------|
-| `knowledge_base_path` | `Path` | `knowledge_base` | Directorio con documentos KB |
+| `knowledge_base_path` | `Path` | `./rag` | Directorio con documentos RAG |
 | `vector_store_path` | `Path` | `data/vector_stores` | Directorio ChromaDB |
 | `page_index_path` | `Path` | `data/page_indices` | Directorio JSON tree indices |
 | `embedding_provider` | `str` | `"ollama"` | Provider de embeddings |
@@ -234,7 +234,7 @@ Las variables de entorno **tienen precedencia** sobre `config.json`:
 | `AGENTICTM_MAX_INPUT_LENGTH` | `security.max_input_length` | Máximo chars de input |
 | `AGENTICTM_MAX_UPLOAD_MB` | `security.max_upload_size_mb` | Máximo MB de upload |
 | `AGENTICTM_DATA_DIR` | `rag.*`, `memory.*`, `output_dir` | Redirige todos los paths de datos (vector stores, page indices, memory, output) a un directorio centralizado — útil para apps empaquetadas |
-| `AGENTICTM_KB_DIR` | `rag.knowledge_base_path` | Ruta a la knowledge base (sobreescribe la default) |
+| `AGENTICTM_KB_DIR` | `rag.knowledge_base_path` | Ruta al directorio RAG (sobreescribe la default) |
 
 ### Ejemplo
 
@@ -289,7 +289,7 @@ classDiagram
     }
 
     class RAGConfig {
-        +knowledge_base_path: Path
+        +knowledge_base_path: Path   // default: ./rag
         +vector_store_path: Path
         +page_index_path: Path
         +embedding_model: str
@@ -354,7 +354,7 @@ Se ejecuta al iniciar el servidor o CLI. Retorna warnings (no fatales) y crea di
 
 | Check | Acción si falla |
 |-------|-----------------|
-| `knowledge_base_path` existe | Crea directorio |
+| `rag_path` existe | Crea directorio |
 | `vector_store_path` existe | Crea directorio |
 | `page_index_path` existe | Crea directorio |
 | `output_dir` existe | Crea directorio |
@@ -394,7 +394,7 @@ services:
     volumes:
       - ./config.json:/app/config.json:ro
       - ./output:/app/output
-      - ./knowledge_base:/app/knowledge_base:ro
+      - ./rag:/app/rag:ro
 ```
 
 ---

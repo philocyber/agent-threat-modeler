@@ -1,4 +1,4 @@
-"""Configuración global de AgenticTM."""
+"""Global configuration for AgenticTM."""
 
 from __future__ import annotations
 
@@ -15,11 +15,11 @@ _config_logger = logging.getLogger(__name__)
 
 
 class LLMConfig(BaseModel):
-    """Configuración de un proveedor LLM.
+    """LLM provider configuration.
 
-    Modelos recomendados para Ollama (16 GB RAM):
+    Recommended models for Ollama (16 GB RAM):
     ┌────────────────┬────────────────────────────┬───────┬──────────────────────────────────┐
-    │ Rol            │ Modelo                     │  VRAM │ Notas                            │
+    │ Role           │ Model                      │  VRAM │ Notes                            │
     ├────────────────┼────────────────────────────┼───────┼──────────────────────────────────┤
     │ quick_thinker  │ qwen3:4b                   │ ~2.7GB│ Fast analysts (PASTA/AT/MAESTRO) │
     │ deep_thinker   │ qwen3.5:9b                 │ ~6.6GB│ Synthesizer (32K ctx, temp=0.2)  │
@@ -47,9 +47,9 @@ class LLMConfig(BaseModel):
 
 
 class RAGConfig(BaseModel):
-    """Configuración del sistema RAG."""
+    """RAG system configuration."""
 
-    knowledge_base_path: Path = Path("./knowledge_base")
+    knowledge_base_path: Path = Path("./rag")
     vector_store_path: Path = Path("./data/vector_stores")
     page_index_path: Path = Path("./data/page_indices")  # PageIndex tree JSON files
     embedding_provider: str = "ollama"
@@ -62,14 +62,14 @@ class RAGConfig(BaseModel):
 
 
 class PipelineConfig(BaseModel):
-    """Configuración del pipeline de análisis."""
+    """Analysis pipeline configuration."""
 
     max_debate_rounds: int = 4  # max rounds; debate can end early via convergence
     max_validation_iterations: int = 2
-    enable_maestro: bool = True  # Solo se activa si el sistema tiene componentes AI
+    enable_maestro: bool = True  # Only activates if the system has AI components
     output_format: str = "both"  # "csv" | "markdown" | "both"
     output_language: str = "en"
-    csv_schema: str = "auto"  # "auto" (detectar de previos) | "default"
+    csv_schema: str = "auto"  # "auto" (detect from previous) | "default"
 
     # Self-reflection: agents critique + revise their own output (improves quality)
     self_reflection_enabled: bool = False
@@ -108,7 +108,7 @@ class PipelineConfig(BaseModel):
     #                 With max=2: no more than 2 LLMs active simultaneously.
     #
     analyst_execution_mode: str = Field(
-        default="hybrid",
+        default="cascade",
         description="How analysts execute: 'parallel' | 'cascade' | 'hybrid'",
     )
 
@@ -145,10 +145,14 @@ class PipelineConfig(BaseModel):
         default=False,
         description="Skip output translation (keeps original language)",
     )
+    skip_architecture_review: bool = Field(
+        default=False,
+        description="Skip pre-analysis architecture review (gap detection, enrichment, threat surface mapping)",
+    )
 
 
 class MemoryConfig(BaseModel):
-    """Configuración de memoria persistente."""
+    """Persistent memory configuration."""
 
     enabled: bool = True
     db_path: Path = Path("./data/memory.db")
@@ -174,7 +178,7 @@ class SecurityConfig(BaseModel):
 
 
 class AgenticTMConfig(BaseModel):
-    """Configuración completa de AgenticTM."""
+    """Complete AgenticTM configuration."""
 
     # LLM configs
     quick_thinker: LLMConfig = Field(
@@ -272,13 +276,33 @@ class AgenticTMConfig(BaseModel):
                     for line in f:
                         if line.startswith("MemTotal:"):
                             return int(line.split()[1]) * 1024 / (1024 ** 3)
+            elif system == "Windows":
+                import ctypes
+                kernel32 = ctypes.windll.kernel32
+                c_ulonglong = ctypes.c_ulonglong
+                class MEMORYSTATUSEX(ctypes.Structure):
+                    _fields_ = [
+                        ("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", c_ulonglong),
+                        ("ullAvailPhys", c_ulonglong),
+                        ("ullTotalPageFile", c_ulonglong),
+                        ("ullAvailPageFile", c_ulonglong),
+                        ("ullTotalVirtual", c_ulonglong),
+                        ("ullAvailVirtual", c_ulonglong),
+                        ("ullAvailExtendedVirtual", c_ulonglong),
+                    ]
+                stat = MEMORYSTATUSEX()
+                stat.dwLength = ctypes.sizeof(stat)
+                kernel32.GlobalMemoryStatusEx(ctypes.byref(stat))
+                return stat.ullTotalPhys / (1024 ** 3)
         except Exception:
             pass
         return 16.0
 
     @classmethod
     def load(cls, path: Path | None = None) -> "AgenticTMConfig":
-        """Carga configuración desde archivo JSON, con env-var overrides.
+        """Load configuration from JSON file, with env-var overrides.
 
         When config.json is absent (first run), uses ``for_hardware()`` to
         auto-detect appropriate model sizes for this machine's RAM.
@@ -329,12 +353,12 @@ class AgenticTMConfig(BaseModel):
             if not os.environ.get("AGENTICTM_OUTPUT_DIR"):
                 config.output_dir = data_base / "output"
         if env_kb_dir := os.environ.get("AGENTICTM_KB_DIR"):
-            config.rag.knowledge_base_path = Path(env_kb_dir)
+            config.rag.knowledge_base_path = Path(env_kb_dir)  # env: AGENTICTM_KB_DIR
 
         return config
 
     def save(self, path: Path) -> None:
-        """Guarda la configuración actual a disco."""
+        """Save the current configuration to disk."""
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             self.model_dump_json(indent=2), encoding="utf-8"
@@ -351,7 +375,7 @@ class AgenticTMConfig(BaseModel):
 
         # -- Check paths --
         for label, path in [
-            ("knowledge_base_path", self.rag.knowledge_base_path),
+            ("rag_path", self.rag.knowledge_base_path),
             ("vector_store_path", self.rag.vector_store_path),
             ("output_dir", self.output_dir),
         ]:
@@ -415,7 +439,7 @@ class AgenticTMConfig(BaseModel):
             stores = [d.name for d in vs_path.iterdir() if d.is_dir()]
             _logger.info("  [OK] %d vector stores found", len(stores))
         else:
-            _logger.info("  ○ No vector stores yet (run index_knowledge_base)")
+            _logger.info("  ○ No vector stores yet (run: python cli.py index)")
 
         # -- Check tree indices --
         tree_path = Path(self.rag.page_index_path) if self.rag.page_index_path else None

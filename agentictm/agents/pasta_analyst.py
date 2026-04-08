@@ -1,8 +1,8 @@
-"""Agente: PASTA Analyst -- Fase II: Analisis por Metodologia.
+"""Agent: PASTA Analyst -- Phase II: Methodology Analysis.
 
-Aplica PASTA (Process for Attack Simulation and Threat Analysis):
-enfoque risk-centric y business-oriented de 7 etapas que complementa STRIDE
-con analisis de objetivos de negocio y simulacion de ataques.
+Applies PASTA (Process for Attack Simulation and Threat Analysis):
+a risk-centric and business-oriented 7-stage approach that complements STRIDE
+with business objective analysis and attack simulation.
 """
 
 from __future__ import annotations
@@ -61,6 +61,8 @@ RULES:
 - 6-12 threats covering multi-step attacks, lateral movement, and business impact
 - Each threat must reference SPECIFIC components from the architecture
 - Each evidence_source must cite where the finding comes from
+- If the architecture explicitly mentions multi-tenant isolation, object identifiers, share links, presigned URLs, or asynchronous validation/scanning workflows, include attack scenarios for broken object authorization, cross-tenant access, and state/race bypasses when applicable
+- If the architecture explicitly states there are no AI/LLM/agentic components, do NOT output prompt injection, LLM, or agent-tooling scenarios
 
 !!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
 - RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
@@ -114,10 +116,15 @@ IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or stage des
 ## Scope Notes
 {state.get("scope_notes", "No notes")}
 {arch_note}
+## Architecture Review Briefing
+{state.get("threat_surface_summary", "No architecture review briefing available.")}
 Focus on:
 - Multi-step attack scenarios (lateral movement)
 - Business impact (not only technical impact)
 - Realistic attack paths, not purely theoretical ones
+- Tenant isolation, object ownership, and direct-object-reference abuse when business identifiers or multi-tenant data are mentioned
+- Upload/scan/quarantine/share state transitions and async race conditions when the workflow uses queues, scanners, approvals, or deferred status updates
+- Only non-AI scenarios when the system explicitly says there is no AI/LLM/agentic surface
 - Use your attacker expertise first, then enrich with RAG tools to validate scenarios against known vulnerability databases (CWE/CVE)
 
 REMINDER: Output a single JSON object with "methodology", "threats" array, and "summary". No markdown.
@@ -230,7 +237,7 @@ def run_pasta_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: PASTA Analyst."""
+    """LangGraph node: PASTA Analyst."""
     logger.info("[PASTA] Starting analysis...")
     human_prompt = _build_human_prompt(state)
     t0 = time.perf_counter()

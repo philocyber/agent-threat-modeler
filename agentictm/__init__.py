@@ -1,6 +1,6 @@
 """AgenticTM — Multi-agent Threat Modeling framework."""
 
-__version__ = "0.3.2"
+__version__ = "2.0.0"
 
 # ---------------------------------------------------------------------------
 # Monkey-patch: Pydantic v1 + Python 3.14 (PEP 649 deferred annotations)

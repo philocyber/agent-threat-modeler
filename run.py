@@ -16,7 +16,9 @@ from __future__ import annotations
 import argparse
 import faulthandler
 import json
+import logging
 import os
+import re
 import shutil
 import signal
 import socket
@@ -32,6 +34,27 @@ if not os.environ.get("PYTHONIOENCODING"):
 
 HOST = os.environ.get("AGENTICTM_HOST", "127.0.0.1")
 DEFAULT_PORT = 8000
+
+
+class _StatusPollAccessFilter(logging.Filter):
+    """Suppress high-frequency polling noise from uvicorn access logs."""
+
+    _status_pattern = re.compile(r'"GET /api/analysis/[^\s]+/status HTTP/1\.[01]"')
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            return self._status_pattern.search(record.getMessage()) is None
+        except Exception:
+            return True
+
+
+def _suppress_status_poll_access_logs() -> None:
+    """Keep frequent /status polls from drowning the analysis trace."""
+    access_logger = logging.getLogger("uvicorn.access")
+    poll_filter = _StatusPollAccessFilter()
+    access_logger.addFilter(poll_filter)
+    for handler in access_logger.handlers:
+        handler.addFilter(poll_filter)
 
 
 def _install_crash_guards() -> None:
@@ -143,10 +166,12 @@ def main() -> None:
         host=args.host,
         port=actual_port,
         timeout_graceful_shutdown=2,
+        timeout_keep_alive=120,
         log_level="info",
         reload=args.reload,
     )
     server = uvicorn.Server(config)
+    _suppress_status_poll_access_logs()
 
     try:
         if args.reload:

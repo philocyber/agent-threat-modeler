@@ -1,10 +1,10 @@
-"""Agente: Architecture Parser -- Fase I: Ingesta y Modelado.
+"""Agent: Architecture Parser -- Phase I: Ingestion and Modeling.
 
-Transforma cualquier input (texto libre, Mermaid, archivos adjuntos, imagenes
-de diagramas) en un modelo estructurado del sistema.
+Transforms any input (free text, Mermaid, attached files, diagram images)
+into a structured system model.
 
-Para imagenes de diagramas (PNG, JPG, etc.) usa un Vision Language Model (VLM)
-para extraer componentes, flujos y trust boundaries directamente de la imagen.
+For diagram images (PNG, JPG, etc.) uses a Vision Language Model (VLM)
+to extract components, flows, and trust boundaries directly from the image.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from agentictm.agents.base import invoke_agent, extract_json_from_response
 from agentictm.agents.input_triage import _score_dimensions
 from agentictm.state import ThreatModelState
+from agentictm.logging import with_logging_context
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -167,6 +168,90 @@ def _ensure_str(val: object) -> str:
     return str(val) if val else ""
 
 
+def _extract_app_context_notes(raw_input: str, parsed: dict[str, Any] | None = None) -> list[str]:
+    """Extract explicit business/workflow context without turning it into threats."""
+    parsed = parsed or {}
+    corpus_parts = [
+        raw_input,
+        _ensure_str(parsed.get("system_description", "")),
+        _ensure_str(parsed.get("assumptions", [])),
+        _ensure_str(parsed.get("api_endpoints", [])),
+    ]
+    corpus = " ".join(part for part in corpus_parts if part).lower()
+    notes: list[str] = []
+
+    identifiers = [
+        token for token in (
+            "tenant_id", "doc_id", "user_id", "account_id", "org_id",
+            "status", "created_at", "share_token", "object_id",
+        )
+        if token in corpus
+    ]
+    if identifiers:
+        notes.append(
+            "Explicit business/data identifiers mentioned: "
+            + ", ".join(sorted(set(identifiers)))
+            + "."
+        )
+
+    if any(term in corpus for term in ("multi-tenant", "tenant isolation", "cross-tenant", "authorized tenant")):
+        notes.append(
+            "Multi-tenant boundaries are explicitly described, including tenant-scoped access expectations."
+        )
+
+    if any(term in corpus for term in ("presigned", "pre-signed", "shareable link", "share link", "secure shareable link")):
+        notes.append(
+            "Link-based access flows are explicitly described (presigned URLs or shareable links)."
+        )
+
+    if any(term in corpus for term in ("upload", "uploaded", "object-created", "directly to s3")) and any(
+        term in corpus for term in ("scan", "scanner", "clamav", "quarantine", "clean status", "status update", "updates dynamodb")
+    ):
+        notes.append(
+            "The workflow includes explicit upload-to-scan state transitions before downstream access or sharing."
+        )
+
+    if any(term in corpus for term in ("sqs", "queue", "event", "asynchronous", "async")) and any(
+        term in corpus for term in ("download", "share", "linkgenerator", "link generator", "authorized tenant users")
+    ):
+        notes.append(
+            "An asynchronous processing pipeline is explicitly described between ingestion, validation, and later download/share actions."
+        )
+
+    api_endpoints = parsed.get("api_endpoints", [])
+    if isinstance(api_endpoints, list) and api_endpoints:
+        named_paths = [
+            f"{ep.get('method', 'UNKNOWN')} {ep.get('path', '').strip()}".strip()
+            for ep in api_endpoints
+            if isinstance(ep, dict) and ep.get("path")
+        ]
+        if named_paths:
+            notes.append(
+                "Notable API endpoints mentioned: " + ", ".join(named_paths[:8]) + "."
+            )
+
+    return notes
+
+
+def _build_scope_notes(parsed: dict[str, Any] | None, raw_input: str, fallback: str = "") -> str:
+    """Compose parser assumptions plus explicit business/workflow context."""
+    parsed = parsed or {}
+    sections: list[str] = []
+
+    assumptions = parsed.get("assumptions", [])
+    if assumptions:
+        sections.append("Parser assumptions: " + json.dumps(assumptions, ensure_ascii=False))
+
+    app_notes = _extract_app_context_notes(raw_input, parsed)
+    if app_notes:
+        sections.append("Explicit application/workflow context:\n- " + "\n- ".join(app_notes))
+
+    if fallback:
+        sections.append(fallback)
+
+    return "\n\n".join(section for section in sections if section).strip()
+
+
 def _regex_extract_architecture(response: str) -> dict:
     """Extract architecture components from semi-broken JSON via individual object parsing.
 
@@ -236,7 +321,7 @@ def _regex_extract_architecture(response: str) -> dict:
 
 
 def _detect_input_type(raw_input: str) -> str:
-    """Detecta el tipo de input: text, mermaid, image, drawio, mixed."""
+    """Detect the input type: text, mermaid, image, drawio, mixed."""
     stripped = raw_input.strip()
     lower = stripped.lower()
     if lower.startswith(("graph ", "flowchart ", "sequencediagram", "classdiagram")):
@@ -486,7 +571,7 @@ def _invoke_vlm_for_image(
         if image_timeout and image_timeout > 0:
             executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
             try:
-                future = executor.submit(vlm.invoke, messages)
+                future = executor.submit(with_logging_context(lambda: vlm.invoke(messages)))
                 try:
                     response: AIMessage = future.result(timeout=image_timeout)
                 except concurrent.futures.TimeoutError:
@@ -549,7 +634,7 @@ def _invoke_vlm_for_image(
 
 
 def _enrich_with_mermaid_parser(raw_input: str) -> str:
-    """Si el input es Mermaid, parsea los componentes para ayudar al LLM."""
+    """If the input is Mermaid, parse the components to assist the LLM."""
     try:
         from agentictm.parsers.mermaid_parser import parse_mermaid, mermaid_to_system_model
 
@@ -967,11 +1052,11 @@ def run_architecture_parser(
     *,
     vlm_image_timeout: int = 300,
 ) -> dict:
-    """Nodo de LangGraph: Architecture Parser.
+    """LangGraph node: Architecture Parser.
 
-    Lee: raw_input
-    Escribe: system_description, components, data_flows, trust_boundaries,
-             external_entities, data_stores, input_type, scope_notes, mermaid_dfd
+    Reads: raw_input
+    Writes: system_description, components, data_flows, trust_boundaries,
+            external_entities, data_stores, input_type, scope_notes, mermaid_dfd
 
     Args:
         state: Current graph state.
@@ -1158,7 +1243,7 @@ def run_architecture_parser(
                             "trust_boundaries": parsed.get("trust_boundaries", []),
                             "external_entities": parsed.get("external_entities", []),
                             "data_stores": parsed.get("data_stores", []),
-                            "scope_notes": json.dumps(parsed.get("assumptions", []), ensure_ascii=False),
+                            "scope_notes": _build_scope_notes(parsed, raw_input),
                             "mermaid_dfd": mermaid_dfd,
                         }
 
@@ -1196,7 +1281,7 @@ def run_architecture_parser(
                         "trust_boundaries": parsed.get("trust_boundaries", []),
                         "external_entities": parsed.get("external_entities", []),
                         "data_stores": parsed.get("data_stores", []),
-                        "scope_notes": json.dumps(parsed.get("assumptions", []), ensure_ascii=False),
+                        "scope_notes": _build_scope_notes(parsed, raw_input),
                         "mermaid_dfd": mermaid_dfd,
                     }
         else:
@@ -1250,7 +1335,11 @@ def run_architecture_parser(
             "trust_boundaries": [],
             "external_entities": [],
             "data_stores": [],
-            "scope_notes": f"Architecture parser LLM timed out ({type(_text_llm_exc).__name__}). Using raw input as description.",
+            "scope_notes": _build_scope_notes(
+                {},
+                raw_input,
+                f"Architecture parser LLM timed out ({type(_text_llm_exc).__name__}). Using raw input as description.",
+            ),
         }
 
     parsed = extract_json_from_response(response)
@@ -1272,7 +1361,7 @@ def run_architecture_parser(
                 "trust_boundaries": extracted.get("trust_boundaries", []),
                 "external_entities": [],
                 "data_stores": extracted.get("data_stores", []),
-                "scope_notes": "Recovered via regex fallback from semi-broken JSON",
+                "scope_notes": _build_scope_notes(extracted, raw_input, "Recovered via regex fallback from semi-broken JSON"),
             }
         logger.warning("[Architecture Parser] Regex fallback also failed, using raw response")
         return {
@@ -1283,7 +1372,7 @@ def run_architecture_parser(
             "trust_boundaries": [],
             "external_entities": [],
             "data_stores": [],
-            "scope_notes": "Parser could not extract structured JSON",
+            "scope_notes": _build_scope_notes({}, raw_input, "Parser could not extract structured JSON"),
         }
 
     if isinstance(parsed, dict):
@@ -1343,7 +1432,7 @@ def run_architecture_parser(
             "trust_boundaries": parsed.get("trust_boundaries", []),
             "external_entities": parsed.get("external_entities", []),
             "data_stores": parsed.get("data_stores", []),
-            "scope_notes": json.dumps(parsed.get("assumptions", []), ensure_ascii=False),
+            "scope_notes": _build_scope_notes(parsed, raw_input),
             "mermaid_dfd": mermaid_dfd,
             "quality_score": quality_score,
             "clarification_needed": needs_clarification,
@@ -1353,12 +1442,12 @@ def run_architecture_parser(
 
 
 def _generate_mermaid_dfd(model: dict) -> str:
-    """Genera un DFD en Mermaid a partir del modelo parseado."""
+    """Generate a Mermaid DFD from the parsed model."""
     try:
         lines = ["graph TD"]
         node_ids: dict[str, str] = {}
 
-        # Crear nodos
+        # Create nodes
         for i, comp in enumerate(model.get("components", [])):
             if not isinstance(comp, dict):
                 continue
@@ -1376,7 +1465,7 @@ def _generate_mermaid_dfd(model: dict) -> str:
             else:
                 lines.append(f'    {nid}["{safe_name}"]')
 
-        # Crear edges
+        # Create edges
         for flow in model.get("data_flows", []):
             if not isinstance(flow, dict):
                 continue
@@ -1390,7 +1479,7 @@ def _generate_mermaid_dfd(model: dict) -> str:
                 else:
                     lines.append(f"    {src} --> {dst}")
 
-        # Crear subgraphs para trust boundaries
+        # Create subgraphs for trust boundaries
         for tb in model.get("trust_boundaries", []):
             if not isinstance(tb, dict):
                 continue

@@ -28,7 +28,7 @@ module.exports = {
       path.resolve(__dirname, 'logo-philocyber.png'),
       path.resolve(__dirname, 'requirements.txt'),
       path.resolve(__dirname, 'pyproject.toml'),
-      path.resolve(__dirname, 'knowledge_base'),
+      path.resolve(__dirname, 'rag'),
     ],
     ignore: [
       /^\/\.venv/,
@@ -41,7 +41,6 @@ module.exports = {
       /^\/data/,
       /^\/docs/,
       /^\/tests/,
-      /^\/rag/,
       /^\/reporte\.pdf$/,
       /^\/\.dockerignore$/,
       /^\/Dockerfile$/,

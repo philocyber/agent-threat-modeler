@@ -91,7 +91,7 @@ Open an issue on [GitHub Issues](https://github.com/PhiloCyber/agent-threat-mode
 
 ## RAG / Knowledge Base Contributions
 
-The `knowledge_base/` directory is **not tracked** in Git (only `.gitkeep` files are). If you want to suggest improvements to the RAG content or indexing strategy, open an issue describing the enhancement and the sources involved.
+The `rag/` directory is **not tracked** in Git (only `.gitkeep` files are). If you want to suggest improvements to the RAG content or indexing strategy, open an issue describing the enhancement and the sources involved.
 
 ## License
 

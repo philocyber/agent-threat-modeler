@@ -183,3 +183,78 @@ def _avg_dread(threats: list[dict[str, Any]]) -> float:
     """Calculate average DREAD total across threats."""
     totals = [t.get("dread_total", 0) for t in threats if t.get("dread_total")]
     return sum(totals) / len(totals) if totals else 0.0
+
+
+def diff_to_sarif(diff: dict[str, Any], system_name: str = "System") -> str:
+    """Convert a threat model diff to SARIF 2.1.0 delta format.
+
+    Each added/removed/modified threat becomes a SARIF result annotated
+    with ``properties.changeType`` so CI/CD tools can show new vs resolved.
+    """
+    import json as _json
+    from agentictm import __version__
+
+    results = []
+
+    for threat in diff.get("added", []):
+        results.append({
+            "ruleId": threat.get("id", "UNKNOWN"),
+            "level": _sarif_level(threat.get("priority", "Medium")),
+            "message": {"text": threat.get("description", "New threat")},
+            "properties": {
+                "changeType": "new",
+                "component": threat.get("component", ""),
+                "priority": threat.get("priority", ""),
+                "stride_category": threat.get("stride_category", ""),
+            },
+        })
+
+    for threat in diff.get("removed", []):
+        results.append({
+            "ruleId": threat.get("id", "UNKNOWN"),
+            "level": "none",
+            "message": {"text": f"[RESOLVED] {threat.get('description', '')}"},
+            "properties": {
+                "changeType": "resolved",
+                "component": threat.get("component", ""),
+            },
+        })
+
+    for mod in diff.get("modified", []):
+        new_t = mod.get("new", {})
+        change_descs = [c.get("detail", "") for c in mod.get("changes", [])]
+        results.append({
+            "ruleId": new_t.get("id", mod.get("threat_id", "UNKNOWN")),
+            "level": _sarif_level(new_t.get("priority", "Medium")),
+            "message": {"text": f"[MODIFIED] {new_t.get('description', '')}"},
+            "properties": {
+                "changeType": "modified",
+                "changes": change_descs,
+                "component": new_t.get("component", ""),
+            },
+        })
+
+    sarif = {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": "AgenticTM-Diff",
+                    "version": __version__,
+                    "informationUri": "https://github.com/agentictm",
+                }
+            },
+            "results": results,
+            "properties": {
+                "systemName": system_name,
+                "diffSummary": diff.get("summary", {}),
+            },
+        }],
+    }
+
+    return _json.dumps(sarif, indent=2, ensure_ascii=False)
+
+
+def _sarif_level(priority: str) -> str:
+    return {"Critical": "error", "High": "error", "Medium": "warning", "Low": "note"}.get(priority, "warning")

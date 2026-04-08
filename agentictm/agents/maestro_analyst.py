@@ -1,10 +1,10 @@
-"""Agente: MAESTRO Analyst — Fase II: Análisis de Amenazas AI/Agénticas.
+"""Agent: MAESTRO Analyst — Phase II: AI/Agentic Threat Analysis.
 
-Aplica el framework MAESTRO (CSA) de 7 capas + OWASP Agentic Top 10
-para evaluar amenazas específicas de sistemas con componentes de IA,
-ML, LLMs o agentes autónomos.
+Applies the MAESTRO (CSA) 7-layer framework + OWASP Agentic AI Top 10 2026
+to evaluate threats specific to systems with AI, ML, LLM, or autonomous
+agent components.
 
-Se activa CONDICIONALMENTE: solo si el sistema tiene componentes AI.
+Activated CONDITIONALLY: only if the system has AI components.
 """
 
 from __future__ import annotations
@@ -28,26 +28,28 @@ You are a specialist in threats against AI systems and agentic applications.
 
 Use these two reference frameworks:
 
-**MAESTRO (CSA) — 7 capas de análisis:**
-- L1: Foundation Models — ataques al modelo base (extraction, poisoning)
-- L2: Data Operations — envenenamiento de datos, RAG poisoning
-- L3: Agent Frameworks — vulnerabilidades en LangChain/LangGraph/etc
+**MAESTRO (CSA) — 7 analysis layers:**
+- L1: Foundation Models — attacks on the base model (extraction, poisoning)
+- L2: Data Operations — data poisoning, RAG poisoning
+- L3: Agent Frameworks — vulnerabilities in LangChain/LangGraph/etc.
 - L4: Deployment — misconfigs, API exposure, model serving
 - L5: Multi-Agent Systems — collusion, cascading failures, coordination attacks
-- L6: Ecosystem & Plugins — supply chain de tools/plugins, third-party risks
+- L6: Ecosystem & Plugins — tool/plugin supply chain, third-party risks
 - L7: Governance — audit gaps, compliance, human oversight gaps
 
-**OWASP Agentic Applications Top 10:**
-- ASI01: Prompt Injection (directa e indirecta)
-- ASI02: Sensitive Information Disclosure
-- ASI03: Supply Chain Vulnerabilities
-- ASI04: Excessive Agency
-- ASI05: Insecure Output Handling
-- ASI06: Insufficient Logging/Monitoring
-- ASI07: Improper Context Management
-- ASI08: Memory Poisoning
-- ASI09: Privilege Mismanagement
-- ASI10: Uncontrolled Code Generation
+**OWASP Agentic AI Top 10 2026:**
+- ASI01: Agent Goal Hijack
+- ASI02: Tool Misuse
+- ASI03: Identity & Privilege Abuse
+- ASI04: Agentic Supply Chain
+- ASI05: Unexpected Code Execution
+- ASI06: Memory & Context Poisoning
+- ASI07: Insecure Inter-Agent Comms
+- ASI08: Cascading Failures
+- ASI09: Human-Agent Trust Exploitation
+- ASI10: Rogue Agents
+
+When the system includes autonomous AI agents or multi-agent orchestration, also evaluate against the OWASP Agentic AI Top 10 2026 categories: ASI01 Agent Goal Hijack, ASI02 Tool Misuse, ASI03 Identity & Privilege Abuse, ASI04 Agentic Supply Chain, ASI05 Unexpected Code Execution, ASI06 Memory & Context Poisoning, ASI07 Insecure Inter-Agent Comms, ASI08 Cascading Failures, ASI09 Human-Agent Trust Exploitation, ASI10 Rogue Agents.
 
 If the system has NO AI/ML/Agentic components, respond:
 {
@@ -66,7 +68,7 @@ If the system HAS AI components, analyze each one with MAESTRO + OWASP:
         {
             "component": "affected AI component",
             "maestro_layer": "L1-L7",
-            "owasp_id": "ASI01-ASI10 (si aplica)",
+            "owasp_id": "ASI01-ASI10 (if applicable)",
             "description": "3-5 sentence developer-friendly explanation: what the AI-specific vulnerability is, how an attacker exploits it against this system, and the concrete business impact. Explain AI security terms (e.g. prompt injection, RAG poisoning) as if the reader has never heard them.",
             "attack_vector": "Step-by-step concrete attack sequence: 1. attacker does X -> 2. system responds with Y -> 3. attacker achieves Z. Use actual component names from the system.",
             "impact": "High|Medium|Low",
@@ -92,7 +94,7 @@ CONFIDENCE: Rate 0.0-1.0 how certain you are this AI threat applies to THIS spec
 
 
 def _has_ai_components(state: ThreatModelState) -> bool:
-    """Detecta si el sistema tiene componentes de IA/ML/Agénticos.
+    """Detect whether the system has AI/ML/Agentic components.
 
     Uses a two-tier keyword strategy to avoid false positives on non-AI
     systems whose descriptions naturally contain words like "model", "agent",
@@ -197,7 +199,7 @@ Analyze the following system for AI/ML/Agentic-specific threats.
 ## Scope Notes
 {state.get("scope_notes", "No notes")}
 {arch_note}
-Apply MAESTRO (7 layers) + OWASP Agentic Top 10 to each AI/ML/LLM/Agentic component.
+Apply MAESTRO (7 layers) + OWASP Agentic AI Top 10 2026 to each AI/ML/LLM/Agentic component.
 Use your expertise first, then enrich with RAG tools to cross-reference AI threat research and validate your findings.
 """
 
@@ -206,8 +208,8 @@ def run_maestro_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: MAESTRO Analyst (condicional)."""
-    # Chequear si hay componentes AI
+    """LangGraph node: MAESTRO Analyst (conditional)."""
+    # Check for AI components
     if not _has_ai_components(state):
         logger.info("[MAESTRO] No AI/ML/agentic components detected, skipping")
         report = {

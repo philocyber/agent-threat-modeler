@@ -1,7 +1,7 @@
-"""Agente: STRIDE Analyst -- Fase II: Analisis por Metodologia.
+"""Agent: STRIDE Analyst -- Phase II: Methodology-based Analysis.
 
-Aplica STRIDE-per-element: para cada componente y flujo del sistema,
-evalua las 6 categorias de amenaza (Spoofing, Tampering, Repudiation,
+Applies STRIDE-per-element: for each component and data flow in the system,
+evaluates the 6 threat categories (Spoofing, Tampering, Repudiation,
 Information Disclosure, Denial of Service, Elevation of Privilege).
 """
 
@@ -31,7 +31,9 @@ You are a STRIDE threat analyst. Apply STRIDE-per-element internally:
 - S: Spoofing  - T: Tampering  - R: Repudiation
 - I: Information Disclosure  - D: Denial of Service  - E: Elevation of Privilege
 
-Analyze EVERY component and data flow against all 6 categories INTERNALLY,
+When the system under analysis includes AI agents, autonomous components, or multi-agent orchestration, also evaluate threats under the ASTRIDE 'A' category: Agent Threats. These include prompt injection, unsafe tool invocation, reasoning subversion, context poisoning, and cross-agent trust exploitation.
+
+Analyze EVERY component and data flow against all 6 categories INTERNALLY (plus the A category when AI agents are present),
 then OUTPUT ONLY the JSON below.
 
 AUDIENCE: Developers with NO security training. Each description must be a story.
@@ -42,7 +44,7 @@ Your response must be EXACTLY this JSON structure:
 Each threat object:
 {
   "component": "exact component or data flow name from the architecture",
-  "stride_category": "S|T|R|I|D|E",
+  "stride_category": "S|T|R|I|D|E|A",
   "description": "3-5 sentences: WHAT the vulnerability is (explain security terms), HOW an attacker exploits it step-by-step against THIS system, WHAT concrete harm results. Name specific components.",
   "impact": "High|Medium|Low",
   "reasoning": "2-3 sentences on what design flaw or missing control makes this possible",
@@ -58,10 +60,12 @@ GOOD description: "The API Gateway does not validate JWT token signatures -- it 
 
 RULES:
 - Output ONLY the JSON object -- no markdown, no STRIDE-per-element tables, no narrative
-- Cover ALL 6 STRIDE categories (at least 1 threat per category when applicable)
+- Cover ALL 6 STRIDE categories (plus the A category for agent-based systems) with at least 1 threat per category when applicable
 - Each threat must name a SPECIFIC component from the architecture
 - Each evidence_source must cite where the finding comes from
 - Use your expertise first, then enrich with RAG tools
+- If the architecture explicitly mentions multi-tenant isolation, object identifiers, share links, presigned URLs, or async scan/approval workflows, include threats for object-level authorization, cross-tenant access, and workflow/state bypasses when applicable
+- If the architecture explicitly states there are no AI/LLM/agentic components, do NOT output prompt injection, LLM, or agent-tooling threats
 
 !!! CRITICAL: DO NOT COPY RAG ENTRIES !!!
 - RAG results (e.g. TMA-xxxx IDs from threats.csv) are REFERENCE MATERIAL ONLY
@@ -91,8 +95,9 @@ def _build_human_prompt(state: ThreatModelState) -> str:
             "trust_boundaries": trust_boundaries,
             "data_stores": data_stores,
             "scope_notes": str(state.get("scope_notes", "No notes")),
+            "threat_surface_summary": str(state.get("threat_surface_summary", "No architecture review briefing available.")),
         },
-        priorities=["system_description", "components", "data_flows", "trust_boundaries", "data_stores", "scope_notes"],
+        priorities=["system_description", "components", "data_flows", "trust_boundaries", "data_stores", "scope_notes", "threat_surface_summary"],
     )
 
     components_list = state.get("components", [])
@@ -131,6 +136,12 @@ IMPORTANT: Respond with the JSON object ONLY. Do NOT write markdown or narrative
 ## Scope Notes
 {fitted["scope_notes"]}
 {arch_note}
+## Architecture Review Briefing
+{fitted["threat_surface_summary"]}
+Focus explicitly on:
+- Object-level authorization, tenant isolation, and direct-object-reference abuse when identifiers or multi-tenant data are present
+- State transitions and asynchronous workflow bypasses when upload/scan/quarantine/approval/download steps exist
+- Only non-AI threats when the system explicitly says there is no AI/LLM/agentic surface
 Use your expert knowledge first, then enrich with RAG tools to cite known attack patterns.
 
 REMINDER: Output a single JSON object with "methodology", "threats" array, and "summary". No markdown.
@@ -141,7 +152,7 @@ def run_stride_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: STRIDE Analyst."""
+    """LangGraph node: STRIDE Analyst."""
     logger.info("[STRIDE] Starting analysis...")
     human_prompt = _build_human_prompt(state)
     t0 = time.perf_counter()

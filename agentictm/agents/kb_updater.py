@@ -9,7 +9,7 @@ Usage::
 
     from agentictm.agents.kb_updater import update_knowledge_base
 
-    stats = update_knowledge_base(kb_path="knowledge_base")
+    stats = update_knowledge_base(kb_path="rag")
     print(f"Updated: {stats['sources_updated']} sources, {stats['documents_added']} documents")
 """
 
@@ -95,7 +95,7 @@ _CWE_TOP_25 = """# CWE Top 25 Most Dangerous Software Weaknesses (2023)
 
 
 def update_knowledge_base(
-    kb_path: str | Path = "knowledge_base",
+    kb_path: str | Path = "rag",
     *,
     timeout: int = 30,
     force: bool = False,

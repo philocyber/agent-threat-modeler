@@ -16,20 +16,16 @@ env/
 data/
 output/
 
-# Knowledge base — large binaries and user-specific data
-knowledge_base/books/*.pdf
-knowledge_base/research/*.pdf
-knowledge_base/previous_threat_models/*
-!knowledge_base/previous_threat_models/.gitkeep
-knowledge_base/ai_threats/*.pdf
-knowledge_base/ai_threats/*.json
-knowledge_base/risks_mitigations/*.csv
-!knowledge_base/risks_mitigations/threats.csv
-knowledge_base/risks_mitigations/*.json
-
-# RAG data directory (user-specific CSVs and threat models)
-rag/*
-!rag/.gitkeep
+# RAG sources — large binaries and user-specific data
+rag/books/*.pdf
+rag/research/*.pdf
+rag/previous_threat_models/*
+!rag/previous_threat_models/.gitkeep
+rag/ai_threats/*.pdf
+rag/ai_threats/*.json
+rag/risks_mitigations/*.csv
+!rag/risks_mitigations/threats.csv
+rag/risks_mitigations/*.json
 
 # IDE / Editor
 .vscode/

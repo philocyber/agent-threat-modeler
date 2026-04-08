@@ -294,33 +294,33 @@ def _generate_fallback_questions(dimensions: list[dict[str, Any]]) -> list[str]:
 
     if "components" in missing:
         questions.append(
-            "¿Cuáles son los componentes principales de tu sistema? "
-            "(ej: frontend, backend, base de datos, APIs, servicios externos)"
+            "What are the main components of your system? "
+            "(e.g., frontend, backend, database, APIs, external services)"
         )
     if "data_flows" in missing:
         questions.append(
-            "¿Cómo se comunican los componentes entre sí? "
-            "¿Qué protocolos usan? (ej: REST, gRPC, WebSocket, mensajería)"
+            "How do the components communicate with each other? "
+            "What protocols do they use? (e.g., REST, gRPC, WebSocket, messaging)"
         )
     if "tech_stack" in missing:
         questions.append(
-            "¿Qué tecnologías usa cada componente? "
-            "(ej: Python/FastAPI, React, PostgreSQL, Redis, Docker)"
+            "What technologies does each component use? "
+            "(e.g., Python/FastAPI, React, PostgreSQL, Redis, Docker)"
         )
     if "authentication" in missing:
         questions.append(
-            "¿Cómo se autentican los usuarios y servicios? "
-            "(ej: JWT, OAuth2, API keys, certificados mTLS)"
+            "How are users and services authenticated? "
+            "(e.g., JWT, OAuth2, API keys, mTLS certificates)"
         )
     if "data_sensitivity" in missing:
         questions.append(
-            "¿Qué tipos de datos sensibles maneja el sistema? "
-            "(ej: datos personales/PII, financieros, de salud, credenciales)"
+            "What types of sensitive data does the system handle? "
+            "(e.g., personal data/PII, financial, health, credentials)"
         )
     if "deployment" in missing and len(questions) < 5:
         questions.append(
-            "¿Dónde se despliega el sistema? "
-            "(ej: AWS, Azure, on-premise, Kubernetes, Docker Compose)"
+            "Where is the system deployed? "
+            "(e.g., AWS, Azure, on-premise, Kubernetes, Docker Compose)"
         )
 
     return questions[:5]

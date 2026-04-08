@@ -1,8 +1,9 @@
-"""Agente: Report Generator — Fase IV: Generación de Output.
+"""Agent: Report Generator — Phase IV: Output Generation.
 
-Genera:
-  1. CSV en el formato profesional del equipo (STRIDE + DREAD)
-  2. Reporte Markdown completo con DFD, attack trees, y tablas
+Generates:
+  1. CSV in the team's professional format (STRIDE + DREAD)
+  2. Complete Markdown report with DFD, attack trees, and tables
+  3. SARIF 2.1.0 output for CI/CD integration
 """
 
 from __future__ import annotations
@@ -54,10 +55,11 @@ _STRIDE_FULL = {
     "I": "Information Disclosure",
     "D": "Denial of Service",
     "E": "Elevation of Privilege",
+    "A": "Agent Threat",
 }
 
-# Priority mapping to Spanish
-_PRIORITY_ES = {
+# Priority mapping to normalized uppercase
+_PRIORITY_NORM = {
     "Critical": "CRITICAL",
     "High": "HIGH",
     "Medium": "MEDIUM",
@@ -80,7 +82,7 @@ _CATEGORY_PREFIX = {
 
 
 def _compute_dread_average(threat: dict) -> str:
-    """Compute DREAD average score as comma-separated string (Spanish format)."""
+    """Compute DREAD average score formatted with comma as decimal separator."""
     d = threat.get("damage", 0)
     r = threat.get("reproducibility", 0)
     e = threat.get("exploitability", 0)
@@ -89,7 +91,7 @@ def _compute_dread_average(threat: dict) -> str:
 
     if all(isinstance(v, (int, float)) for v in [d, r, e, a, disc]):
         avg = (d + r + e + a + disc) / 5
-        # Format as Spanish decimal: "7,4" instead of "7.4"
+        # Format with comma decimal separator: "7,4" instead of "7.4"
         return f"{avg:.1f}".replace(".", ",")
     return "0"
 
@@ -107,12 +109,12 @@ def _assign_threat_id(threat: dict, index: int) -> str:
 
 
 def generate_csv(state: ThreatModelState) -> str:
-    """Genera el CSV profesional del threat model.
+    """Generate the professional CSV threat model output.
 
     Format matches the team's existing structure:
     - Grouped by category sections
     - DREAD as individual columns + average
-    - Spanish field names
+    - Localized field names
     - Category section separators
     """
     threats = state.get("threats_final", [])
@@ -137,23 +139,15 @@ def generate_csv(state: ThreatModelState) -> str:
 
     # Write grouped threats (ordered by professional category)
     category_order = [
-        "Infraestructura y Cumplimiento",
-        "Privacidad y Lógica de Negocio",
-        "Vulnerabilidades Web y API",
-        "Riesgos de Integración Agéntica",
-        "Amenazas Nativas de IA y LLM",
-        "Factores Humanos y Gobernanza",
-        "Amenazas Generales",
+        "Infrastructure and Compliance",
+        "Privacy and Business Logic",
+        "Web and API Vulnerabilities",
+        "Agentic Integration Risks",
+        "Native AI and LLM Threats",
+        "Human Factors and Governance",
+        "General Threats",
     ]
-    category_display = {
-        "Infraestructura y Cumplimiento": "Infrastructure and Compliance",
-        "Privacidad y Lógica de Negocio": "Privacy and Business Logic",
-        "Vulnerabilidades Web y API": "Web and API Vulnerabilities",
-        "Riesgos de Integración Agéntica": "Agentic Integration Risks",
-        "Amenazas Nativas de IA y LLM": "Native AI and LLM Threats",
-        "Factores Humanos y Gobernanza": "Human Factors and Governance",
-        "Amenazas Generales": "General Threats",
-    }
+    category_display = {cat: cat for cat in category_order}
     threat_global_idx = 1
     for group_name in category_order:
         group_threats = groups.get(group_name)
@@ -169,7 +163,7 @@ def generate_csv(state: ThreatModelState) -> str:
                 threat.get("stride_category", ""),
             )
             dread_avg = _compute_dread_average(threat)
-            priority = _PRIORITY_ES.get(
+            priority = _PRIORITY_NORM.get(
                 threat.get("priority", "Medium"), "MEDIUM"
             )
 
@@ -206,7 +200,7 @@ def generate_csv(state: ThreatModelState) -> str:
 
 
 def generate_markdown_report(state: ThreatModelState) -> str:
-    """Genera un reporte Markdown completo del threat model."""
+    """Generate a complete Markdown report of the threat model."""
     system_name = state.get("system_name", "System")
     analysis_date = state.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
     threats = state.get("threats_final", [])
@@ -264,7 +258,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
 ```
 """
 
-    # ── Tabla de amenazas ──
+    # ── Threat table ──
     report += """
 ---
 
@@ -290,7 +284,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
             mitigation = mitigation[:57] + "..."
         report += f"| {tid} | {comp} | {desc} | {stride} | {dread} | {prio} | {conf_str} | {mitigation} |\n"
 
-    # ── Detalle por amenaza ──
+    # ── Threat details ──
     report += "\n---\n\n## Threat Details\n"
     for t in threats:
         tid = t.get("id", "?")
@@ -338,7 +332,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
 > **Justified by:** {justif.get('justified_by', 'N/A')} — {justif.get('justified_at', '')}
 """
 
-    # ── Methodology contributions (Spanish summary only) ──
+    # ── Methodology contributions ──
     report += """
 ---
 
@@ -407,7 +401,7 @@ def generate_markdown_report(state: ThreatModelState) -> str:
         report += "- Critical: 40+, High: 30-39, Medium: 20-29, Low: <20\n\n"
 
     # ── Debate ──
-    # Prefer localized debate if available (set by output_localizer for Spanish)
+    # Prefer localized debate if available (set by output_localizer)
     debate_localized = state.get("debate_history_localized", [])
     debate = debate_localized if debate_localized else state.get("debate_history", [])
     if debate:
@@ -437,16 +431,33 @@ def generate_markdown_report(state: ThreatModelState) -> str:
 
 
 def run_report_generator(state: ThreatModelState) -> dict:
-    """Nodo de LangGraph: Report Generator.
+    """LangGraph node: Report Generator.
 
-    Lee: threats_final, methodology_reports, debate_history, etc.
-    Escribe: csv_output, report_output
+    Reads: threats_final, methodology_reports, debate_history, etc.
+    Writes: csv_output, report_output
     """
     logger.info("[Report] Generating outputs...")
     t0 = time.perf_counter()
 
     csv_output = generate_csv(state)
     report_output = generate_markdown_report(state)
+
+    # MITRE ATT&CK / CAPEC / D3FEND mapping
+    mitre_mappings = []
+    try:
+        from agentictm.agents.mitre_mapper import map_all_threats
+        threats = state.get("threats_final", [])
+        if threats:
+            mitre_mappings = map_all_threats(threats)
+            logger.info("[Report] MITRE mappings generated for %d threats", len(threats))
+    except Exception as exc:
+        logger.warning("[Report] MITRE mapping failed (non-fatal): %s", exc)
+
+    # Append MITRE mappings section to Markdown report
+    if mitre_mappings:
+        mitre_section = _generate_mitre_section(mitre_mappings)
+        report_output += mitre_section
+
     elapsed = time.perf_counter() - t0
 
     logger.info(
@@ -457,7 +468,37 @@ def run_report_generator(state: ThreatModelState) -> dict:
     return {
         "csv_output": csv_output,
         "report_output": report_output,
+        "mitre_mappings": mitre_mappings,
     }
+
+
+def _generate_mitre_section(mappings: list[dict]) -> str:
+    """Generate a Markdown section with MITRE ATT&CK/CAPEC/D3FEND mappings."""
+    lines = ["\n\n## MITRE ATT&CK / CAPEC / D3FEND Mappings\n"]
+    for m in mappings:
+        tid = m.get("threat_id", "N/A")
+        attacks = m.get("attack_techniques", [])
+        capecs = m.get("capec_patterns", [])
+        defenses = m.get("d3fend_techniques", [])
+        if not attacks and not capecs and not defenses:
+            continue
+        lines.append(f"### {tid}\n")
+        if attacks:
+            lines.append("**ATT&CK Techniques:**\n")
+            for a in attacks[:5]:
+                lines.append(f"- [{a['technique_id']}]({a['reference_url']}) {a['technique_name']} ({a['tactic']})")
+            lines.append("")
+        if capecs:
+            lines.append("**CAPEC Patterns:**\n")
+            for c in capecs[:5]:
+                lines.append(f"- [{c['capec_id']}]({c['reference_url']}) {c['pattern_name']}")
+            lines.append("")
+        if defenses:
+            lines.append("**D3FEND Defenses:**\n")
+            for d in defenses[:5]:
+                lines.append(f"- [{d['d3fend_id']}]({d['reference_url']}) {d['technique_name']} ({d['category']})")
+            lines.append("")
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -465,36 +506,36 @@ def run_report_generator(state: ThreatModelState) -> dict:
 # ---------------------------------------------------------------------------
 
 _THREAT_CATEGORY_KEYWORDS: dict[str, list[str]] = {
-    "Infraestructura y Cumplimiento": [
+    "Infrastructure and Compliance": [
         "infrastructure", "infraestructura", "credential", "secret", "deploy",
         "compliance", "environment", ".env", "token", "certificate", "server",
         "host", "container", "docker", "kubernetes", "monitoring", "logging",
         "cloud", "aws", "azure", "gcp", "terraform", "tls", "ssl", "network",
         "firewall", "dns", "cicd", "ci/cd", "pipeline", "config", "iac",
     ],
-    "Privacidad y Lógica de Negocio": [
+    "Privacy and Business Logic": [
         "privacy", "privacidad", "pii", "gdpr", "ccpa", "personal data",
         "consent", "business logic", "repudiation", "repudio", "audit trail",
         "data protection", "retention", "anonymi", "trazab", "exfiltr",
     ],
-    "Vulnerabilidades Web y API": [
+    "Web and API Vulnerabilities": [
         "web", "api", "frontend", "xss", "csrf", "sql inject", "idor", "http",
         "cors", "cookie", "session", "jwt", "oauth", "endpoint", "gateway",
         "rate limit", "input valid", "sanitiz", "deserialization", "ssrf",
         "inyecci",
     ],
-    "Riesgos de Integración Agéntica": [
+    "Agentic Integration Risks": [
         "agent", "agentic", "agéntic", "orchestrat", "orquest", "loop",
         "recursion", "tool misuse", "mcp", "langchain", "langgraph",
         "checkpoint", "state manip", "multi-agent", "tool call", "bucle",
     ],
-    "Amenazas Nativas de IA y LLM": [
+    "Native AI and LLM Threats": [
         "llm", "prompt inject", "jailbreak", "hallucin", "alucinaci", "model",
         "training", "poisoning", "embedding", "rag", "vector", "adversarial",
         "extraction", "system prompt", "guardrail", "artificial intelligence",
         "machine learning", "nlp", "bias", "sesgo",
     ],
-    "Factores Humanos y Gobernanza": [
+    "Human Factors and Governance": [
         "human", "humano", "governance", "gobernanza", "oversight",
         "automation bias", "trust", "review", "approval", "social engineer",
         "insider", "phishing",
@@ -502,12 +543,12 @@ _THREAT_CATEGORY_KEYWORDS: dict[str, list[str]] = {
 }
 
 _CATEGORY_PREFIX_MAP: dict[str, str] = {
-    "Infraestructura y Cumplimiento": "INF",
-    "Privacidad y Lógica de Negocio": "PRI",
-    "Vulnerabilidades Web y API": "WEB",
-    "Riesgos de Integración Agéntica": "AGE",
-    "Amenazas Nativas de IA y LLM": "LLM",
-    "Factores Humanos y Gobernanza": "HUM",
+    "Infrastructure and Compliance": "INF",
+    "Privacy and Business Logic": "PRI",
+    "Web and API Vulnerabilities": "WEB",
+    "Agentic Integration Risks": "AGE",
+    "Native AI and LLM Threats": "LLM",
+    "Human Factors and Governance": "HUM",
 }
 
 
@@ -526,7 +567,7 @@ def _classify_threat_category(threat: dict) -> str:
     for cat, kws in _THREAT_CATEGORY_KEYWORDS.items():
         if any(kw in text for kw in kws):
             return cat
-    return "Amenazas Generales"
+    return "General Threats"
 
 
 def _escape_latex(s: str) -> str:
@@ -552,7 +593,7 @@ def _escape_latex(s: str) -> str:
 
 def generate_latex_report(state: ThreatModelState) -> str:
     """Generate a professional LaTeX threat model report."""
-    system_name = state.get("system_name", "Sistema")
+    system_name = state.get("system_name", "System")
     analysis_date = state.get("analysis_date", datetime.now().strftime("%Y-%m-%d"))
     threats = state.get("threats_final", [])
     categories = state.get("threat_categories", [])
@@ -583,13 +624,13 @@ def generate_latex_report(state: ThreatModelState) -> str:
     )
 
     category_order = [
-        "Infraestructura y Cumplimiento",
-        "Privacidad y Lógica de Negocio",
-        "Vulnerabilidades Web y API",
-        "Riesgos de Integración Agéntica",
-        "Amenazas Nativas de IA y LLM",
-        "Factores Humanos y Gobernanza",
-        "Amenazas Generales",
+        "Infrastructure and Compliance",
+        "Privacy and Business Logic",
+        "Web and API Vulnerabilities",
+        "Agentic Integration Risks",
+        "Native AI and LLM Threats",
+        "Human Factors and Governance",
+        "General Threats",
     ]
 
     # Build threat table rows
@@ -613,15 +654,15 @@ def generate_latex_report(state: ThreatModelState) -> str:
             avg_str = f"{avg:.1f}".replace(".", ",")
             stride = t.get("stride_category", "-")
             prio = t.get("priority", "Medium")
-            prio_map = {"Critical": "CRÍTICO", "High": "ALTO", "Medium": "MEDIO", "Low": "BAJO"}
-            prio_es = prio_map.get(prio, prio)
+            prio_map = {"Critical": "CRITICAL", "High": "HIGH", "Medium": "MEDIUM", "Low": "LOW"}
+            prio_display = prio_map.get(prio, prio)
 
             desc = esc((t.get("description", "") or "")[:120])
             mitigation = esc((t.get("mitigation", "") or "")[:120])
 
             threat_rows += (
                 f"    {esc(tid)} & {desc} & {esc(stride)} & {mitigation} "
-                f"& {d} & {r} & {e2} & {a} & {disc} & {avg_str} & {prio_es} \\\\\n"
+                f"& {d} & {r} & {e2} & {a} & {disc} & {avg_str} & {prio_display} \\\\\n"
             )
 
     # Detailed threat sections
@@ -649,14 +690,14 @@ def generate_latex_report(state: ThreatModelState) -> str:
             detail_sections += f"""\\subsubsection{{{esc(tid)}: {esc((t.get('description','')or'')[:80])}}}
 
 \\begin{{description}}
-  \\item[Componente:] {esc(t.get('component', 'N/A'))}
-  \\item[Categoría STRIDE:] {esc(t.get('stride_category', 'N/A'))}
+  \\item[Component:] {esc(t.get('component', 'N/A'))}
+  \\item[STRIDE Category:] {esc(t.get('stride_category', 'N/A'))}
   \\item[DREAD:] D={d}, R={r}, E={e2}, A={a}, D={disc} $\\rightarrow$ \\textbf{{{avg_str}}}
-  \\item[Prioridad:] {esc(t.get('priority', 'N/A'))}
-  \\item[Mitigación:] {esc(t.get('mitigation', 'Sin mitigación propuesta'))}
-  \\item[Control de Referencia:] {esc(t.get('control_reference', 'N/A'))}
-  \\item[Esfuerzo:] {esc(t.get('effort', 'N/A'))}
-  \\item[Observaciones:] {esc(t.get('observations', 'N/A'))}
+  \\item[Priority:] {esc(t.get('priority', 'N/A'))}
+  \\item[Mitigation:] {esc(t.get('mitigation', 'No mitigation proposed'))}
+  \\item[Control Reference:] {esc(t.get('control_reference', 'N/A'))}
+  \\item[Effort:] {esc(t.get('effort', 'N/A'))}
+  \\item[Observations:] {esc(t.get('observations', 'N/A'))}
 \\end{{description}}
 
 """
@@ -665,7 +706,7 @@ def generate_latex_report(state: ThreatModelState) -> str:
 \usepackage[utf8]{{inputenc}}
 \usepackage[T1]{{fontenc}}
 \usepackage{{lmodern}}
-\usepackage[spanish]{{babel}}
+\usepackage[english]{{babel}}
 \usepackage[margin=2cm]{{geometry}}
 \usepackage{{longtable}}
 \usepackage{{booktabs}}
@@ -748,9 +789,128 @@ def generate_latex_report(state: ThreatModelState) -> str:
   \item[Methodologies:] STRIDE + PASTA + Attack Trees + MAESTRO + AI Threats + DREAD
   \item[Date:] {esc(analysis_date)}
   \item[Total Threat Controls:] {len(threats)}
-  \item[Estado:] GENERADO POR AGENTICTM
+  \item[Status:] GENERATED BY AGENTICTM
 \end{{description}}
 
 \end{{document}}
 """
     return latex
+
+
+# ---------------------------------------------------------------------------
+# SARIF 2.1.0 Output Generation
+# ---------------------------------------------------------------------------
+
+_SARIF_LEVEL_MAP = {
+    "Critical": "error",
+    "High": "error",
+    "Medium": "warning",
+    "Low": "note",
+}
+
+
+def generate_sarif(state: ThreatModelState) -> str:
+    """Generate SARIF 2.1.0 output for CI/CD integration."""
+    threats = state.get("threats_final", [])
+
+    # --- Build rules from unique STRIDE categories found in threats ----------
+    category_priorities: dict[str, list[str]] = {}
+    for t in threats:
+        cat = t.get("stride_category", "")
+        if cat:
+            category_priorities.setdefault(cat, []).append(
+                t.get("priority", "Medium")
+            )
+
+    rules: list[dict] = []
+    rule_index: dict[str, int] = {}
+    for cat in sorted(category_priorities):
+        rule_id = f"STRIDE-{cat}"
+        full_name = _STRIDE_FULL.get(cat, cat)
+        priorities = category_priorities[cat]
+        most_common = max(set(priorities), key=priorities.count)
+        default_level = _SARIF_LEVEL_MAP.get(most_common, "warning")
+
+        rule_index[cat] = len(rules)
+        rules.append({
+            "id": rule_id,
+            "name": full_name,
+            "shortDescription": {
+                "text": f"STRIDE threat category: {full_name}",
+            },
+            "defaultConfiguration": {
+                "level": default_level,
+            },
+        })
+
+    # --- Build results -------------------------------------------------------
+    results: list[dict] = []
+    for t in threats:
+        cat = t.get("stride_category", "")
+        rule_id = f"STRIDE-{cat}" if cat else "STRIDE-unknown"
+        priority = t.get("priority", "Medium")
+        level = _SARIF_LEVEL_MAP.get(priority, "warning")
+
+        dread_breakdown = {
+            "D": t.get("damage", 0),
+            "R": t.get("reproducibility", 0),
+            "E": t.get("exploitability", 0),
+            "A": t.get("affected_users", 0),
+            "D2": t.get("discoverability", 0),
+        }
+        evidence = t.get("evidence_sources", [])
+
+        result: dict = {
+            "ruleId": rule_id,
+            "level": level,
+            "message": {
+                "text": t.get("description", ""),
+            },
+            "locations": [
+                {
+                    "physicalLocation": {
+                        "artifactLocation": {
+                            "uri": t.get("component", "unknown"),
+                        },
+                    },
+                },
+            ],
+            "properties": {
+                "threat_id": t.get("id", ""),
+                "dread_total": t.get("dread_total", 0),
+                "dread_breakdown": dread_breakdown,
+                "priority": priority,
+                "mitigation": t.get("mitigation", ""),
+                "methodology": t.get("methodology", ""),
+                "confidence_score": t.get("confidence_score", 0),
+                "evidence_sources": len(evidence) if isinstance(evidence, list) else 0,
+            },
+            "fingerprints": {
+                "threat_id": t.get("id", ""),
+            },
+        }
+        results.append(result)
+
+    # --- Assemble SARIF document ---------------------------------------------
+    sarif_doc = {
+        "$schema": (
+            "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/"
+            "main/sarif-2.1/schema/sarif-schema-2.1.0.json"
+        ),
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "AgenticTM",
+                        "version": __version__,
+                        "informationUri": "https://github.com/richi-tj/agent-threat-modeler",
+                        "rules": rules,
+                    },
+                },
+                "results": results,
+            },
+        ],
+    }
+
+    return json.dumps(sarif_doc, indent=2, ensure_ascii=False)

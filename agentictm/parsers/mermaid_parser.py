@@ -1,4 +1,4 @@
-"""Parser de diagramas Mermaid → componentes estructurados."""
+"""Mermaid diagram parser → structured components."""
 
 from __future__ import annotations
 

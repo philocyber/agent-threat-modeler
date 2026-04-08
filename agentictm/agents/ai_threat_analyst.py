@@ -1,9 +1,9 @@
-"""Agente: AI Threat Analyst — Fase II: Analisis de Amenazas AI/ML/Agentic.
+"""Agent: AI Threat Analyst — Phase II: AI/ML/Agentic Threat Analysis.
 
-Especialista en amenazas de IA usando frameworks de ultima generacion:
+Specialist in AI threats using state-of-the-art frameworks:
 
-Frameworks integrados:
-- PLOT4ai (8 categorias de riesgo AI)
+Integrated frameworks:
+- PLOT4ai (8 AI risk categories)
 - OWASP Top 10 for LLM Applications 2025 (LLM01-LLM10)
 - OWASP Agentic AI Top 10 2026 (ASI01-ASI10)
 - CSA MAESTRO 7-Layer Model (cross-layer threat propagation)
@@ -13,9 +13,9 @@ Frameworks integrados:
   → 32 protocol-level threats + lifecycle vulnerability assessment
   → Context-CIA reinterpretation for AI agent environments
 
-Metricas cuantitativas:
-- WEI (Workflow Exploitability Index) — explotabilidad intrinseca por capa MAESTRO
-- RPS (Risk Propagation Score) — amplificacion de riesgo en cascada
+Quantitative metrics:
+- WEI (Workflow Exploitability Index) — intrinsic exploitability per MAESTRO layer
+- RPS (Risk Propagation Score) — cascading risk amplification
 - VR  (Violation Rate) — misbinding/misrouting probability under tool ambiguity
 
 Se activa CONDICIONALMENTE: solo si el sistema tiene componentes AI.
@@ -65,17 +65,38 @@ You have deep expertise in the following frameworks and must apply ALL that are 
 - LLM09: Misinformation
 - LLM10: Unbounded Consumption
 
-## OWASP Agentic AI Top 10 (2026)
-- ASI01: Agent Goal Hijacking -- adversarial manipulation of agent objectives
-- ASI02: Tool Misuse -- agents invoking tools in unintended or dangerous ways
-- ASI03: Identity & Privilege Abuse -- impersonation, privilege escalation in MAS
-- ASI04: Supply Chain Vulnerabilities -- compromised plugins, MCP servers, tool registries
-- ASI05: Unexpected Code Execution -- code injection through agent tool use
-- ASI06: Memory & Context Poisoning -- corrupting shared memory, conversation history injection
-- ASI07: Insecure Inter-Agent Communication -- eavesdropping, injection between agents in MAS
-- ASI08: Cascading Failures -- single agent failure propagating through the system
-- ASI09: Human-Agent Trust Exploitation -- social engineering via agent interface
-- ASI10: Rogue Agents -- compromised or malicious agents within a MAS
+## OWASP Agentic AI Top 10 2026 (ASI01-ASI10)
+
+When the system includes autonomous AI agents, multi-agent orchestration, or MCP tool integrations, evaluate against these categories:
+
+- ASI01 Agent Goal Hijack: Injected instructions hidden in documents, emails, or tool outputs redirect the agent's decision-making process
+- ASI02 Tool Misuse & Exploitation: Agents use legitimate tools in unintended or unsafe ways, causing data leakage or workflow compromise
+- ASI03 Identity & Privilege Abuse: Agents gain excessive privileges or misuse credentials for unauthorized actions
+- ASI04 Agentic Supply Chain: Third-party agents, tools, or prompts may be malicious or tampered with
+- ASI05 Unexpected Code Execution (RCE): Agents generate and execute malicious commands allowing system control
+- ASI06 Memory & Context Poisoning: Malicious data injected into agent memory influences future decisions
+- ASI07 Insecure Inter-Agent Communication: Agent-to-agent communication lacks proper security controls
+- ASI08 Cascading Failures: Single failures spread across interconnected agents causing widespread disruption
+- ASI09 Human-Agent Trust Exploitation: Attackers exploit user trust to manipulate agents into unsafe actions
+- ASI10 Rogue Agents: Compromised agents operate outside intended scope performing harmful activities
+
+## MCP Security Threats
+
+For systems using Model Context Protocol (MCP) for tool integration:
+- Tool Poisoning: Malicious instructions embedded in MCP tool metadata or responses
+- Cross-Server Data Exfiltration: Sensitive data leaked between MCP server boundaries
+- Tool Shadowing: Malicious tools mimicking legitimate ones to intercept operations
+- Credential Theft: Plaintext secrets in MCP configuration files
+- Sampling Abuse: Exploiting MCP sampling to manipulate agent behavior
+
+## ATFAA/SHIELD Threat Domains
+
+For autonomous AI agents, also consider the 5 ATFAA threat domains:
+- Cognitive Architecture Vulnerabilities: Reasoning path hijacking, decision manipulation
+- Temporal Persistence Threats: Knowledge/memory poisoning, belief loops
+- Operational Execution Vulnerabilities: Unauthorized action execution
+- Trust Boundary Violations: Identity spoofing between agents
+- Governance Circumvention: Oversight saturation attacks
 
 ## CSA MAESTRO -- 7 Layers (Cross-Layer Threat Propagation)
 - L1: Foundation Models -- model vulnerabilities, weights tampering, backdoors
@@ -308,6 +329,24 @@ def _has_ai_components(state: ThreatModelState) -> bool:
     def _wb_match(keyword: str, text: str) -> bool:
         return bool(_re.search(r"\b" + _re.escape(keyword) + r"\b", text))
 
+    def _has_explicit_ai_negation(text: str) -> bool:
+        negation_patterns = [
+            r"\bno\s+ai\b",
+            r"\bno\s+llm\b",
+            r"\bno\s+agentic\b",
+            r"\bwithout\s+ai\b",
+            r"\bwithout\s+llm\b",
+            r"\bwithout\s+agentic\b",
+            r"\bthere\s+are\s+no\s+ai\b",
+            r"\bthere\s+are\s+no\s+llm\b",
+            r"\bthere\s+are\s+no\s+agentic\b",
+            r"\bno\s+ai/ml/agentic\s+components\b",
+            r"\bno\s+ai\s+components\b",
+            r"\bno\s+llm\s+components\b",
+            r"\bno\s+agentic\s+ai\s+components\b",
+        ]
+        return any(_re.search(pattern, text) for pattern in negation_patterns)
+
     arch_text = (
         _to_str(state.get("system_description", "")).lower()
         + " "
@@ -321,6 +360,10 @@ def _has_ai_components(state: ThreatModelState) -> bool:
         return True
 
     raw_input = _to_str(state.get("raw_input", "")).lower()
+    active_categories = {str(cat).lower() for cat in state.get("threat_categories", [])}
+    if "ai" not in active_categories and _has_explicit_ai_negation(raw_input):
+        logger.info("[AI Threat Analyst] Explicit AI negation detected in raw_input; skipping AI analysis")
+        return False
     strong_in_raw = [kw for kw in _STRONG_AI_KEYWORDS if _wb_match(kw, raw_input)]
     if strong_in_raw:
         logger.info("[AI Threat Analyst] Strong AI keywords in raw_input: %s", strong_in_raw[:5])
@@ -460,10 +503,10 @@ def run_ai_threat_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: AI Threat Analyst (condicional).
+    """LangGraph node: AI Threat Analyst (conditional).
 
-    Lee: components, data_flows, raw_input, system_description
-    Escribe: methodology_reports (append)
+    Reads: components, data_flows, raw_input, system_description
+    Writes: methodology_reports (append)
     """
     if not _has_ai_components(state):
         logger.info("[AI Threat Analyst] No AI/ML components detected, skipping")

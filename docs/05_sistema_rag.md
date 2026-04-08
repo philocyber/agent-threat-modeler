@@ -65,10 +65,10 @@ graph TB
 
 ---
 
-## Knowledge Base: Estructura
+## RAG Sources: Estructura
 
 ```
-knowledge_base/
+rag/
 ├── books/              # 8 PDFs — Libros de threat modeling
 │   ├── Threat_Modeling_Designing_for_Security.pdf
 │   ├── OWASP_Testing_Guide.pdf
@@ -427,8 +427,8 @@ python cli.py index
 # Con verbose logging
 python cli.py index --verbose
 
-# Knowledge base en path custom
-python cli.py index --path /ruta/a/mi/knowledge_base
+# RAG sources en path custom
+python cli.py index --path /ruta/a/mi/rag
 ```
 
 ### Lo que Sucede
@@ -443,7 +443,7 @@ sequenceDiagram
     participant Ollama as Ollama
 
     CLI->>Core: index_knowledge_base()
-    Core->>Indexer: index_all(store_manager, kb_path, ...)
+    Core->>Indexer: index_all(store_manager, rag_path, ...)
     
     loop Para cada subdirectorio (books, research, ...)
         Indexer->>Indexer: Detectar archivos nuevos/modificados (MD5)
@@ -474,7 +474,7 @@ sequenceDiagram
 
 ```
 ╭──────── AgenticTM -- RAG Indexing ────────╮
-│ Knowledge Base: knowledge_base            │
+│ RAG Sources: rag                          │
 ╰───────────────────────────────────────────╯
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━┓

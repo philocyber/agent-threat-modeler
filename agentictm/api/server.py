@@ -1,12 +1,12 @@
 """AgenticTM FastAPI Backend — SSE streaming + file upload.
 
 Endpoints:
-  POST /api/analyze        — Inicia análisis (SSE stream)
-  POST /api/upload         — Upload de archivos
-  GET  /api/categories     — Lista categorías disponibles
+  POST /api/analyze        — Start analysis (SSE stream)
+  POST /api/upload         — File upload
+  GET  /api/categories     — List available categories
   GET  /api/health         — Health check
   GET  /api/ready          — Readiness probe (Ollama + stores)
-  GET  /api/results/{id}   — Obtiene resultado completo
+  GET  /api/results/{id}   — Get full result
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
 import time
 import unicodedata
 import uuid
@@ -38,6 +39,7 @@ from pydantic import BaseModel, Field
 from agentictm import __version__
 from agentictm.config import AgenticTMConfig
 from agentictm.api.storage import ResultStore
+from agentictm.logging import get_correlation_id, with_logging_context
 from agentictm.api.security import check_prompt_injection, get_analysis_limiter
 
 logger = logging.getLogger(__name__)
@@ -130,6 +132,26 @@ _setup_console_logging()
 # ---------------------------------------------------------------------------
 
 _config = AgenticTMConfig.load()
+
+# ---------------------------------------------------------------------------
+# Cross-analysis memory — feedback loop
+# ---------------------------------------------------------------------------
+
+def _store_justification_in_memory(
+    system_name: str,
+    threat_description: str,
+    decision: str,
+    reason: str,
+) -> None:
+    """Persist user justification into the cross-analysis memory system."""
+    try:
+        from agentictm.memory import MemoryManager
+        if _config.memory.enabled:
+            mm = MemoryManager(_config.memory.db_path)
+            mm.store_feedback(system_name, threat_description, decision, reason)
+    except Exception as exc:
+        logger.warning("Could not store justification in memory: %s", exc)
+
 
 # ---------------------------------------------------------------------------
 # API Key Authentication (MVP)
@@ -231,6 +253,21 @@ def _append_live_event(analysis_id: str, event: dict[str, Any]) -> None:
     # Keep memory bounded while preserving enough history to rebuild the live tab.
     if len(events) > 600:
         del events[:-600]
+
+
+def _record_live_event(
+    analysis_id: str,
+    event: dict[str, Any],
+    queue: asyncio.Queue | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> None:
+    """Persist a live event and optionally fan it out to an SSE queue."""
+    _append_live_event(analysis_id, event)
+    if queue is not None and loop is not None and loop.is_running():
+        try:
+            loop.call_soon_threadsafe(queue.put_nowait, event)
+        except RuntimeError:
+            pass
 
 
 def _slugify(text: str) -> str:
@@ -631,24 +668,100 @@ class SSELogCapture(logging.Handler):
             print(f"[SSELogCapture] emit error: {exc}", file=sys.stderr)
 
 
+class AnalysisEventCapture(logging.Handler):
+    """Persist per-analysis log events independently from SSE client lifetime."""
+
+    def __init__(self, analysis_id: str, queue: asyncio.Queue | None = None):
+        super().__init__()
+        self._analysis_id = analysis_id
+        self._queue = queue
+        self._loop: asyncio.AbstractEventLoop | None = None
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+
+    def emit(self, record: logging.LogRecord):
+        try:
+            status = _analysis_status.get(self._analysis_id)
+            if not status:
+                return
+
+            expected_thread_id = status.get("worker_thread_id")
+            expected_correlation_id = status.get("correlation_id")
+            record_correlation_id = getattr(record, "correlation_id", None) or get_correlation_id()
+
+            if expected_thread_id is not None and record.thread == expected_thread_id:
+                pass
+            elif expected_correlation_id and record_correlation_id == expected_correlation_id:
+                pass
+            else:
+                return
+
+            msg = self.format(record)
+            event_data = {
+                "type": "log",
+                "level": record.levelname,
+                "message": msg,
+                "agent": _extract_agent_name(msg),
+                "timestamp": datetime.now().isoformat(),
+            }
+            _record_live_event(self._analysis_id, event_data, self._queue, self._loop)
+        except Exception as exc:
+            import sys
+            print(f"[AnalysisEventCapture] emit error: {exc}", file=sys.stderr)
+
+
 def _extract_agent_name(msg: str) -> str | None:
-    """Try to extract agent name from log message."""
+    """Extract agent name from log message.
+
+    Maps both human-readable prefixes (e.g. ``[STRIDE]``) and internal node
+    names emitted by ``_safe_node`` (e.g. ``[stride_analyst]``) so that
+    every log line is attributed to its pipeline step in the UI.
+    """
     agent_markers = {
+        # ── Architecture Phase ──
         "[Architecture Parser]": "architecture_parser",
         "[Parser]": "architecture_parser",
+        "[architecture_parser]": "architecture_parser",
+        "[ArchitectureReviewer]": "architecture_reviewer",
+        "[architecture_reviewer]": "architecture_reviewer",
+        "[arch_clarifier]": "architecture_parser",
+        # ── Methodology Analysts ──
         "[STRIDE]": "stride_analyst",
+        "[stride_analyst]": "stride_analyst",
         "[PASTA]": "pasta_analyst",
+        "[pasta_analyst]": "pasta_analyst",
         "[Attack Tree Initial]": "attack_tree_analyst",
         "[Attack Tree Enriched]": "attack_tree_enriched",
         "[Attack Tree]": "attack_tree_analyst",
+        "[attack_tree_analyst]": "attack_tree_analyst",
+        "[attack_tree_enriched]": "attack_tree_enriched",
         "[MAESTRO]": "maestro_analyst",
+        "[maestro_analyst]": "maestro_analyst",
         "[AI Threat Analyst]": "ai_threat_analyst",
         "[AI Threat]": "ai_threat_analyst",
+        "[ai_threat_analyst]": "ai_threat_analyst",
+        # ── Debate ──
         "[Red Team]": "red_team",
+        "[red_team]": "red_team",
         "[Blue Team]": "blue_team",
+        "[blue_team]": "blue_team",
+        "[DebateJudge]": "blue_team",
+        # ── Synthesis & Validation ──
         "[Synthesizer]": "threat_synthesizer",
+        "[threat_synthesizer]": "threat_synthesizer",
+        "[QualityJudge]": "quality_judge",
+        "[quality_judge]": "quality_judge",
         "[DREAD Validator]": "dread_validator",
+        "[dread_validator]": "dread_validator",
+        "[HallucinationDetector]": "hallucination_detector",
+        "[hallucination_detector]": "hallucination_detector",
+        # ── Output ──
+        "[OutputLocalizer]": "output_localizer",
+        "[output_localizer]": "output_localizer",
         "[Report]": "report_generator",
+        "[report_generator]": "report_generator",
+        # ── Suppressed (infrastructure logs) ──
         "[Graph]": None,
         "[PageIndex]": None,
         "[Incremental]": None,
@@ -1016,11 +1129,18 @@ async def get_analysis_status(analysis_id: str, _auth=Depends(verify_api_key)):
     if not status:
         # Check if it's a completed result we loaded from storage
         if analysis_id in _results:
+            result = _results[analysis_id]
             return {
                 "analysis_id": analysis_id,
                 "status": "completed",
-                "system_name": _results[analysis_id].get("system_name", ""),
-                "threats_count": len(_results[analysis_id].get("threats_final", [])),
+                "system_name": result.get("system_name", ""),
+                "threats_count": len(result.get("threats_final", [])),
+                "started_at": result.get("started_at", ""),
+                "completed_at": result.get("completed_at", ""),
+                "duration_seconds": result.get("duration_seconds", 0),
+                "project_slug": result.get("project_slug", ""),
+                "system_input": result.get("raw_input", ""),
+                "live_execution": result.get("live_execution", []),
             }
         raise HTTPException(status_code=404, detail="Analysis not found")
     return {"analysis_id": analysis_id, **status}
@@ -1247,8 +1367,17 @@ async def upload_file(file: UploadFile = File(...), _auth=Depends(verify_api_key
 
 
 @app.post("/api/analyze", tags=["Analysis"], summary="Start threat model analysis (SSE stream)")
-async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(verify_api_key)):
-    """Start analysis — returns SSE stream of progress events."""
+async def analyze(
+    request: AnalyzeRequest,
+    raw_request: Request,
+    stream_tokens: bool = Query(default=False, description="Include token-level LLM streaming events"),
+    _auth=Depends(verify_api_key),
+):
+    """Start analysis — returns SSE stream of progress events.
+
+    When ``stream_tokens=true``, additional SSE events of type ``token``
+    are emitted containing partial LLM output as it is generated.
+    """
 
     # --- Rate limiting (P5) ---
     rate_limiter = get_analysis_limiter()
@@ -1282,6 +1411,8 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
     _analysis_status[analysis_id] = {
         "status": "queued",
         "started_at": datetime.now().isoformat(),
+        "correlation_id": analysis_id,
+        "worker_thread_id": None,
         "system_name": request.system_name,
         "categories": request.categories,
         "system_input": request.system_input,
@@ -1335,73 +1466,53 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
     if image_paths:
         system_input += "\n\n--- Architecture Diagram Images ---\n" + "\n".join(image_paths)
 
-    async def event_stream():
-        queue: asyncio.Queue = asyncio.Queue()
-        loop = asyncio.get_event_loop()
-        live_events: list[dict[str, Any]] = []
+    loop = asyncio.get_event_loop()
+    queue: asyncio.Queue = asyncio.Queue()
+    root_logger = logging.getLogger("agentictm")
 
-        # Setup log capture
-        handler = SSELogCapture(queue)
+    start_event = {
+        "type": "start",
+        "analysis_id": analysis_id,
+        "system_name": request.system_name,
+        "categories": request.categories,
+        "stream_tokens": stream_tokens,
+        "timestamp": datetime.now().isoformat(),
+    }
+    _record_live_event(analysis_id, start_event, queue, loop)
+
+    async def _run_analysis_background():
+        handler = AnalysisEventCapture(analysis_id, queue)
         handler.set_loop(loop)
         handler.setLevel(logging.DEBUG)
-        root_logger = logging.getLogger("agentictm")
         root_logger.addHandler(handler)
         root_logger.setLevel(logging.DEBUG)
 
-        # Send start event
-        start_event = {
-            "type": "start",
-            "analysis_id": analysis_id,
-            "system_name": request.system_name,
-            "categories": request.categories,
-            "timestamp": datetime.now().isoformat(),
-        }
-        live_events.append(start_event)
-        _append_live_event(analysis_id, start_event)
-        yield _sse_event(start_event)
-
-        # Run analysis in thread pool
-        result_future: asyncio.Future = loop.run_in_executor(
-            None,
-            _run_analysis_sync,
-            system_input,
-            request.system_name,
-            request.categories,
-            analysis_id,
-            request.max_debate_rounds,
-            request.cloud_providers,
-            request.scan_mode,
-            getattr(request, "custom_model_size", None),
-        )
-
-        # Stream logs while analysis runs
         try:
-            while not result_future.done():
-                try:
-                    event = await asyncio.wait_for(queue.get(), timeout=0.5)
-                    if isinstance(event, dict) and event.get("type") != "heartbeat":
-                        live_events.append(event)
-                        _append_live_event(analysis_id, event)
-                    yield _sse_event(event)
-                except asyncio.TimeoutError:
-                    # Send heartbeat
-                    yield _sse_event({"type": "heartbeat"})
+            if stream_tokens:
+                result = await _run_analysis_with_token_streaming(
+                    system_input, request.system_name, request.categories,
+                    analysis_id, request.max_debate_rounds,
+                    request.cloud_providers, request.scan_mode,
+                    getattr(request, "custom_model_size", None),
+                    queue, loop,
+                )
+            else:
+                result = await loop.run_in_executor(
+                    None,
+                    with_logging_context(_run_analysis_sync),
+                    system_input,
+                    request.system_name,
+                    request.categories,
+                    analysis_id,
+                    request.max_debate_rounds,
+                    request.cloud_providers,
+                    request.scan_mode,
+                    getattr(request, "custom_model_size", None),
+                )
 
-            # Drain remaining log events
-            while not queue.empty():
-                event = queue.get_nowait()
-                if isinstance(event, dict) and event.get("type") != "heartbeat":
-                    live_events.append(event)
-                    _append_live_event(analysis_id, event)
-                yield _sse_event(event)
-
-            # Get result
-            result = result_future.result()
             threats_count = len(result.get("threats_final", []))
-            # Persist full live execution timeline in analysis result
-            result["live_execution"] = list(live_events)
+            result["live_execution"] = list(_analysis_status.get(analysis_id, {}).get("live_execution", []))
 
-            # If clarification is needed, send a special event and save partial result
             if result.get("clarification_needed") and not result.get("user_answers"):
                 clarify_event = {
                     "type": "clarification_needed",
@@ -1410,17 +1521,20 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     "quality_score": result.get("quality_score", 0),
                     "timestamp": datetime.now().isoformat(),
                 }
-                live_events.append(clarify_event)
-                _append_live_event(analysis_id, clarify_event)
-                result["live_execution"] = list(live_events)
+                _record_live_event(analysis_id, clarify_event, queue, loop)
+                result["live_execution"] = list(_analysis_status.get(analysis_id, {}).get("live_execution", []))
                 _results[analysis_id] = result
                 await _store.save(analysis_id, result)
-                yield _sse_event(clarify_event)
-                return # Stop SSE stream here; user needs to reply
+                return
+
+            # Emit architecture_preview SSE event with parsed model
+            arch_preview = _build_architecture_preview(result, analysis_id)
+            if arch_preview:
+                _record_live_event(analysis_id, arch_preview, queue, loop)
+
             _results[analysis_id] = result
             await _store.save(analysis_id, result)
 
-            # Persist uploaded files for this analysis (for later re-download)
             persisted_uploads: list[dict[str, Any]] = []
             output_dir_str = result.get("output_dir")
             if output_dir_str:
@@ -1465,29 +1579,21 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                 result["uploaded_files"] = persisted_uploads
                 _results[analysis_id] = result
                 await _store.save(analysis_id, result)
-                try:
-                    out_dir = Path(result.get("output_dir", ""))
-                    if out_dir.exists():
-                        (out_dir / "result.json").write_text(
-                            json.dumps(result, ensure_ascii=False, default=str),
-                            encoding="utf-8",
-                        )
-                except Exception as save_exc:
-                    logger.warning("Could not update persisted result.json with attachments: %s", save_exc)
 
-            # Send completion event with summary
             complete_event = {
                 "type": "complete",
                 "analysis_id": analysis_id,
                 "threats_count": threats_count,
-                "duration_seconds": round(elapsed, 2),
+                "duration_seconds": float(result.get("duration_seconds", 0) or 0),
                 "categories": result.get("threat_categories", []),
-                "message": f"Analysis complete: {threats_count} threats identified in {elapsed:.1f}s",
+                "message": (
+                    f"Analysis complete: {threats_count} threats identified in "
+                    f"{float(result.get('duration_seconds', 0) or 0):.1f}s"
+                ),
                 "timestamp": datetime.now().isoformat(),
             }
-            live_events.append(complete_event)
-            _append_live_event(analysis_id, complete_event)
-            result["live_execution"] = list(live_events)
+            _record_live_event(analysis_id, complete_event, queue, loop)
+            result["live_execution"] = list(_analysis_status.get(analysis_id, {}).get("live_execution", []))
             _results[analysis_id] = result
             await _store.save(analysis_id, result)
             try:
@@ -1499,36 +1605,26 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     )
             except Exception as save_live_exc:
                 logger.warning("Could not persist live execution timeline: %s", save_live_exc)
-            yield _sse_event(complete_event)
 
         except Exception as exc:
             import traceback
             tb_str = traceback.format_exc()
             logger.error("Analysis failed with exception:\n%s", tb_str)
-            yield _sse_event({
-                "type": "error",
-                "message": f"{type(exc).__name__}: {exc}",
-                "traceback": tb_str,
-                "timestamp": datetime.now().isoformat(),
-            })
             _record_global_analysis(0, success=False)
-            # Update status (I11)
             if analysis_id in _analysis_status:
                 _analysis_status[analysis_id].update({
                     "status": "failed",
                     "error": str(exc),
                     "completed_at": datetime.now().isoformat(),
                 })
-                _append_live_event(analysis_id, {
-                    "type": "error",
-                    "message": f"{type(exc).__name__}: {exc}",
-                    "timestamp": datetime.now().isoformat(),
-                })
-
+            _record_live_event(analysis_id, {
+                "type": "error",
+                "message": f"{type(exc).__name__}: {exc}",
+                "traceback": tb_str,
+                "timestamp": datetime.now().isoformat(),
+            }, queue, loop)
         finally:
             root_logger.removeHandler(handler)
-
-            # Cleanup uploaded temp files used in this analysis
             for uid in request.upload_ids:
                 upload_meta = _uploads.pop(uid, None)
                 if upload_meta:
@@ -1536,7 +1632,23 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
                     try:
                         Path(fpath).unlink(missing_ok=True)
                     except Exception:
-                        pass  # best-effort cleanup
+                        pass
+
+    analysis_task = asyncio.create_task(_run_analysis_background())
+
+    async def event_stream():
+        try:
+            while True:
+                if analysis_task.done() and queue.empty():
+                    break
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=0.5)
+                    yield _sse_event(event)
+                except asyncio.TimeoutError:
+                    yield _sse_event({"type": "heartbeat"})
+        finally:
+            if analysis_task.done():
+                _ = analysis_task.exception() if not analysis_task.cancelled() else None
 
     return StreamingResponse(
         event_stream(),
@@ -1549,7 +1661,7 @@ async def analyze(request: AnalyzeRequest, raw_request: Request, _auth=Depends(v
     )
 
 
-def _run_analysis_sync(
+def _prepare_analysis_env(
     system_input: str,
     system_name: str,
     categories: list[str],
@@ -1558,9 +1670,12 @@ def _run_analysis_sync(
     cloud_providers: dict | None = None,
     scan_mode: str = "deep",
     custom_model_size: float | None = None,
-) -> dict:
-    """Run the analysis synchronously (called from thread pool)."""
-    # ── Summary banner ─────────────────────────────────────────────
+) -> tuple:
+    """Common setup for both sync and streaming analysis paths.
+
+    Returns (tm, final_max_debate_rounds, scan_mode) after applying
+    all config overrides. Does NOT run the analysis.
+    """
     input_kb = len(system_input) / 1024
     has_images = "--- Architecture Diagram Images ---" in system_input
     img_count = 0
@@ -1574,15 +1689,13 @@ def _run_analysis_sync(
                 input_kb, img_count, ", ".join(categories))
     logger.info("=" * 70)
 
-    t0 = time.perf_counter()
-    # Update status to running (I11)
     if analysis_id in _analysis_status:
         _analysis_status[analysis_id]["status"] = "running"
+        _analysis_status[analysis_id]["worker_thread_id"] = threading.get_ident()
     from agentictm.config import AgenticTMConfig
     base_cfg = AgenticTMConfig.load()
     final_cfg = _apply_cloud_overrides(base_cfg, cloud_providers)
 
-    # ── Scan mode overrides ────────────────────────────────────────
     if scan_mode == "fast":
         from agentictm.config import LLMConfig
         fast_llm = LLMConfig(
@@ -1615,12 +1728,35 @@ def _run_analysis_sync(
         final_cfg.vlm.vlm_image_timeout = 180
         max_debate_rounds = min(max_debate_rounds, 2)
         logger.info("  Quick scan: Parser/Synthesizer using quick model, debate capped at %d rounds, VLM timeout=180s", max_debate_rounds)
+
+    tm = _create_agentictm(config=final_cfg)
+    return tm, max_debate_rounds, scan_mode
+
+
+def _run_analysis_sync(
+    system_input: str,
+    system_name: str,
+    categories: list[str],
+    analysis_id: str,
+    max_debate_rounds: int = 4,
+    cloud_providers: dict | None = None,
+    scan_mode: str = "deep",
+    custom_model_size: float | None = None,
+) -> dict:
+    """Run the analysis synchronously (called from thread pool)."""
+    t0 = time.perf_counter()
+    tm, max_debate_rounds, scan_mode = _prepare_analysis_env(
+        system_input, system_name, categories, analysis_id,
+        max_debate_rounds, cloud_providers, scan_mode, custom_model_size,
+    )
     try:
-        tm = _create_agentictm(config=final_cfg)
-    except Exception:
-        raise
-    try:
-        result = tm.analyze(system_input, system_name, threat_categories=categories, max_debate_rounds=max_debate_rounds)
+        result = tm.analyze(
+            system_input,
+            system_name,
+            threat_categories=categories,
+            max_debate_rounds=max_debate_rounds,
+            correlation_id=analysis_id,
+        )
     except Exception:
         raise
     result["analysis_timestamp"] = datetime.now().isoformat()
@@ -1672,6 +1808,243 @@ def _run_analysis_sync(
     return result
 
 
+async def _run_analysis_with_token_streaming(
+    system_input: str,
+    system_name: str,
+    categories: list[str],
+    analysis_id: str,
+    max_debate_rounds: int = 4,
+    cloud_providers: dict | None = None,
+    scan_mode: str = "deep",
+    custom_model_size: float | None = None,
+    queue: asyncio.Queue | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> dict:
+    """Run analysis with token-level streaming via astream_events().
+
+    Sets up the AgenticTM instance in a thread (sync setup), then
+    iterates over ``astream_events()`` in the async context, forwarding
+    ``on_chat_model_stream`` events as SSE ``token`` events.
+    """
+    t0 = time.perf_counter()
+    tm, max_debate_rounds, scan_mode = await asyncio.get_event_loop().run_in_executor(
+        None,
+        with_logging_context(_prepare_analysis_env),
+        system_input, system_name, categories, analysis_id,
+        max_debate_rounds, cloud_providers, scan_mode, custom_model_size,
+    )
+
+    # Sync KB and prepare initial state (mirrors core.analyze setup)
+    await asyncio.get_event_loop().run_in_executor(None, with_logging_context(tm._sync_knowledge_base_if_needed))
+
+    from agentictm.rag.categories import resolve_categories
+    from agentictm.rag.tools import set_active_categories
+    from agentictm.logging import set_correlation_id
+
+    cats = resolve_categories(categories, system_input)
+    set_active_categories(cats)
+
+    from agentictm.state import ThreatModelState
+    initial_state: ThreatModelState = {
+        "system_name": system_name,
+        "analysis_date": datetime.now().strftime("%Y-%m-%d"),
+        "raw_input": system_input,
+        "debate_round": 1,
+        "max_debate_rounds": max(0, min(9, max_debate_rounds)),
+        "iteration_count": 0,
+        "methodology_reports": [],
+        "debate_history": [],
+        "threat_categories": cats,
+        "executive_summary": "",
+    }
+
+    set_correlation_id(analysis_id)
+    tm.store_manager.clear_cache()
+
+    from agentictm.agents.base import clear_agent_metrics
+    clear_agent_metrics()
+
+    result = dict(initial_state)
+    async for event in tm._app.astream_events(initial_state, version="v2"):
+        event_kind = event.get("event", "")
+
+        if event_kind == "on_chat_model_stream" and queue is not None and loop is not None:
+            chunk = event.get("data", {}).get("chunk")
+            if chunk and hasattr(chunk, "content") and chunk.content:
+                token_event = {
+                    "type": "token",
+                    "content": chunk.content,
+                    "node": event.get("metadata", {}).get("langgraph_node", ""),
+                    "timestamp": datetime.now().isoformat(),
+                }
+                _record_live_event(analysis_id, token_event, queue, loop)
+
+        # Capture final graph output
+        if event_kind == "on_chain_end" and event.get("name") == "LangGraph":
+            output = event.get("data", {}).get("output")
+            if isinstance(output, dict):
+                result = output
+
+    elapsed = time.perf_counter() - t0
+    result["analysis_timestamp"] = datetime.now().isoformat()
+    result["started_at"] = _analysis_status.get(analysis_id, {}).get("started_at")
+    result["max_debate_rounds"] = max_debate_rounds
+    result["scan_mode"] = scan_mode
+    result["duration_seconds"] = round(elapsed, 2)
+
+    threats_count = len(result.get("threats_final", []))
+    _record_global_analysis(elapsed, success=True)
+
+    if analysis_id in _analysis_status:
+        _analysis_status[analysis_id].update({
+            "status": "completed",
+            "completed_at": datetime.now().isoformat(),
+            "threats_count": threats_count,
+            "duration_seconds": round(elapsed, 2),
+        })
+        result["completed_at"] = _analysis_status[analysis_id].get("completed_at")
+
+    result["_analysis_id"] = analysis_id
+    result["project_slug"] = _build_project_slug(result, analysis_id)
+    if analysis_id in _analysis_status:
+        _analysis_status[analysis_id]["project_slug"] = result["project_slug"]
+
+    try:
+        out_dir = tm.save_output(result)
+        result["output_dir"] = str(out_dir)
+        result_json_path = Path(out_dir) / "result.json"
+        result_json_path.write_text(
+            json.dumps(result, ensure_ascii=False, default=str),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        logger.warning("Could not save output: %s", e)
+
+    return result
+
+
+def _build_architecture_preview(result: dict[str, Any], analysis_id: str) -> dict[str, Any] | None:
+    """Build an architecture_preview SSE event from analysis results."""
+    components = result.get("components", [])
+    data_flows = result.get("data_flows", [])
+    trust_boundaries = result.get("trust_boundaries", [])
+    review = result.get("architecture_review", {})
+
+    if not components and not data_flows:
+        return None
+
+    return {
+        "type": "architecture_preview",
+        "analysis_id": analysis_id,
+        "components": components,
+        "data_flows": data_flows,
+        "trust_boundaries": trust_boundaries,
+        "quality_score": review.get("completeness_score", 0) if isinstance(review, dict) else 0,
+        "inferred_components": review.get("inferred_components", []) if isinstance(review, dict) else [],
+        "system_complexity": result.get("system_complexity", "unknown"),
+        "threat_surface_summary": result.get("threat_surface_summary", ""),
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+# ---------------------------------------------------------------------------
+# HITL: Interactive Threat Review
+# ---------------------------------------------------------------------------
+
+class ThreatReviewDecision(BaseModel):
+    """A single threat review decision from the user."""
+    threat_id: str
+    status: str = Field(description="accepted | rejected | modified")
+    modified_description: str | None = None
+    modified_mitigation: str | None = None
+    modified_priority: str | None = None
+    reviewer_notes: str = ""
+
+
+class ThreatReviewRequest(BaseModel):
+    """Batch review decisions for threats in a completed analysis."""
+    decisions: list[ThreatReviewDecision]
+    reviewer: str = Field(default="", description="Name of the reviewer")
+
+
+@app.post("/api/results/{analysis_id}/review", tags=["Results"], summary="Submit interactive threat review decisions")
+async def review_threats(analysis_id: str, body: ThreatReviewRequest, _auth=Depends(verify_api_key)):
+    """Submit review decisions for threats in a completed analysis.
+
+    Each threat can be accepted, rejected, or modified. Rejected threats
+    are marked with ``reviewed_status=rejected`` but not deleted.
+    Modified threats have their fields updated in-place.
+    """
+    result = _results.get(analysis_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    threats = result.get("threats_final", [])
+    threat_map = {t.get("id", ""): t for t in threats}
+
+    applied: list[dict] = []
+    not_found: list[str] = []
+
+    for decision in body.decisions:
+        target = threat_map.get(decision.threat_id)
+        if target is None:
+            not_found.append(decision.threat_id)
+            continue
+
+        if decision.status not in ("accepted", "rejected", "modified"):
+            continue
+
+        target["reviewed"] = True
+        target["reviewed_status"] = decision.status
+        target["reviewed_by"] = body.reviewer
+        target["reviewed_at"] = datetime.now().isoformat()
+        target["reviewer_notes"] = decision.reviewer_notes
+
+        if decision.status == "modified":
+            if decision.modified_description:
+                target["description"] = decision.modified_description
+            if decision.modified_mitigation:
+                target["mitigation"] = decision.modified_mitigation
+            if decision.modified_priority:
+                target["priority"] = decision.modified_priority
+
+        applied.append({
+            "threat_id": decision.threat_id,
+            "status": decision.status,
+        })
+
+    # Persist changes
+    _results[analysis_id] = result
+    await _store.save(analysis_id, result)
+
+    # Also persist to disk
+    output_dir = result.get("output_dir")
+    if output_dir:
+        try:
+            result_path = Path(output_dir) / "result.json"
+            result_path.write_text(
+                json.dumps(result, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            logger.warning("Could not persist review to disk: %s", e)
+
+    review_stats = {
+        "accepted": sum(1 for d in applied if d["status"] == "accepted"),
+        "rejected": sum(1 for d in applied if d["status"] == "rejected"),
+        "modified": sum(1 for d in applied if d["status"] == "modified"),
+    }
+
+    return {
+        "analysis_id": analysis_id,
+        "applied": applied,
+        "not_found": not_found,
+        "review_summary": review_stats,
+        "total_threats": len(threats),
+        "reviewed_threats": sum(1 for t in threats if t.get("reviewed")),
+    }
+
+
 class AnalyzeResumeRequest(BaseModel):
     analysis_id: str
     answers: list[str] = Field(default_factory=list)
@@ -1679,54 +2052,40 @@ class AnalyzeResumeRequest(BaseModel):
 
 @app.post("/api/analyze/resume", tags=["Analysis"], summary="Resume analysis with user answers (SSE stream)")
 async def analyze_resume(request: AnalyzeResumeRequest, _auth=Depends(verify_api_key)):
-    """Resume a paused analysis with user answers."""
+    """Resume a paused analysis by re-running with enriched input."""
     from agentictm.agents.input_triage import enrich_with_answers
 
-    # Get partial result
     partial = _results.get(request.analysis_id)
     if not partial:
         raise HTTPException(status_code=404, detail="Analysis not found or not in a resumable state")
 
-    # Enrich description with answers
     enriched_input = enrich_with_answers(
-        partial.get("system_description", ""),
+        partial.get("system_description", partial.get("raw_input", "")),
         partial.get("clarification_questions", []),
         request.answers,
     )
 
-    # Prepare for resume: update state
     partial["user_answers"] = request.answers
     partial["system_description"] = enriched_input
-    # Clear clarification flag so it doesn't loop
     partial["clarification_needed"] = False
 
-    # Technically we should resume the graph from where it left off.
-    # For now, a simple way is to re-run the analysis with the enriched input
-    # and a special flag to skip the parser's own assessment.
-    
-    # We reuse the existing 'analyze' logic but pass the enriched input
-    # and mark it as 'already parsed' in some way, OR we just let it run
-    # and since it now has enough keywords/components, the parser will 
-    # give it a high score and proceed.
-    
-    # Let's create a new 'AnalyzeRequest' and redirect internally or 
-    # just return the same SSE stream logic.
-    
-    # For a robust implementation, we should refactor the SSE stream part 
-    # into a shared function.
-    
-    # TODO: Refactor server.py SSE logic to avoid duplication.
-    # For this iteration, I will assume the user provides enough info 
-    # that a fresh /api/analyze call with the enriched text is sufficient,
-    # OR the frontend just calls /api/analyze with the new text.
-    
-    # However, the user wants it to be a "resume".
-    return {"message": "RESUME NOT FULLY IMPLEMENTED - Redirecting to /api/analyze with enriched input", "enriched_input": enriched_input}
+    return {
+        "status": "enriched",
+        "enriched_input": enriched_input,
+        "message": (
+            "Input enriched with your answers. "
+            "Submit a new POST /api/analyze with the enriched_input to re-run the analysis."
+        ),
+    }
 
 
 @app.get("/api/results", tags=["Results"], summary="List all completed analyses")
-async def list_results(_auth=Depends(verify_api_key)):
-    """List all completed analyses (summary only)."""
+async def list_results(
+    page: int = Query(default=0, ge=0, description="Page number (1-based). Pass 0 or omit for all results."),
+    page_size: int = Query(default=10, ge=1, le=100, description="Items per page"),
+    _auth=Depends(verify_api_key),
+):
+    """List completed analyses. Supports optional pagination."""
     items = []
     for aid, r in _results.items():
         slug = r.get("project_slug") or _build_project_slug(r, aid)
@@ -1744,7 +2103,23 @@ async def list_results(_auth=Depends(verify_api_key)):
         })
     # Newest first
     items.sort(key=lambda x: x.get("analysis_date", ""), reverse=True)
-    return items
+
+    if page < 1:
+        return items  # legacy: return flat array
+
+    total = len(items)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    page = min(page, total_pages)
+    start = (page - 1) * page_size
+    end = start + page_size
+
+    return {
+        "items": items[start:end],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "total_pages": total_pages,
+    }
 
 
 @app.get("/api/results/{analysis_id}", tags=["Results"], summary="Get full analysis result")
@@ -1942,6 +2317,65 @@ async def delete_result(analysis_id: str, _auth=Depends(verify_api_key)):
     }
 
 
+class _BulkDeleteRequest(BaseModel):
+    """Request body for bulk deletion."""
+    analysis_ids: list[str] = Field(min_length=1, description="List of analysis IDs to delete")
+
+
+@app.post("/api/results/bulk-delete", tags=["Results"], summary="Delete multiple analyses")
+async def bulk_delete_results(req: _BulkDeleteRequest, _auth=Depends(verify_api_key)):
+    """Delete multiple analyses and their associated files on disk."""
+    deleted_ids = []
+    removed_dirs = []
+
+    for aid in req.analysis_ids:
+        result = _results.pop(aid, None)
+        output_dir = result.get("output_dir") if result else None
+
+        if not output_dir and _OUTPUT_DIR.exists():
+            for candidate in _OUTPUT_DIR.iterdir():
+                if not candidate.is_dir():
+                    continue
+                rj = candidate / "result.json"
+                if rj.exists():
+                    try:
+                        data = json.loads(rj.read_text(encoding="utf-8"))
+                        if data.get("_analysis_id") == aid:
+                            output_dir = str(candidate)
+                            break
+                    except Exception:
+                        pass
+                if _legacy_analysis_id(candidate) == aid:
+                    output_dir = str(candidate)
+                    break
+
+        if output_dir:
+            out_path = Path(output_dir)
+            try:
+                _ = out_path.resolve().relative_to(_OUTPUT_DIR.resolve())
+                if out_path.exists() and out_path.is_dir():
+                    shutil.rmtree(out_path, ignore_errors=True)
+                    removed_dirs.append(str(out_path))
+            except Exception as e:
+                logger.warning("Could not remove output dir %s: %s", out_path, e)
+
+        deleted_ids.append(aid)
+
+    rows_deleted = await _store.delete_many(req.analysis_ids)
+
+    logger.info(
+        "[BulkDelete] requested=%d | db_rows=%d | dirs_removed=%d",
+        len(req.analysis_ids), rows_deleted, len(removed_dirs),
+    )
+
+    return {
+        "status": "deleted",
+        "deleted_count": rows_deleted,
+        "deleted_ids": deleted_ids,
+        "removed_dirs": removed_dirs,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Threat Justification — user dispositioning of individual threats
 # ---------------------------------------------------------------------------
@@ -2013,6 +2447,14 @@ async def justify_threat(analysis_id: str, threat_id: str, body: _JustifyRequest
 
     # Persist to SQLite
     await _store.save(analysis_id, result)
+
+    # Store feedback in cross-analysis memory for future recall
+    _store_justification_in_memory(
+        system_name=result.get("system_name", "System"),
+        threat_description=target.get("description", ""),
+        decision=body.decision,
+        reason=body.reason_text,
+    )
 
     return {
         "threat_id": threat_id,
@@ -2303,6 +2745,57 @@ async def download_latex(analysis_id: str, _auth=Depends(verify_api_key)):
             "Content-Disposition": f'attachment; filename="threat_model_{analysis_id}.tex"',
         },
     )
+
+
+@app.get("/api/results/{analysis_id}/sarif", tags=["Results"], summary="Download SARIF 2.1.0 report")
+async def download_sarif(analysis_id: str, _auth=Depends(verify_api_key)):
+    """Download the SARIF 2.1.0 report for CI/CD integration."""
+    result = _results.get(analysis_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    from agentictm.agents.report_generator import generate_sarif
+    try:
+        sarif_output = generate_sarif(result)
+    except Exception as e:
+        logger.warning("SARIF generation failed: %s", e)
+        raise HTTPException(status_code=500, detail="SARIF generation failed")
+
+    return StreamingResponse(
+        iter([sarif_output]),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="threat_model_{analysis_id}.sarif"',
+        },
+    )
+
+
+@app.get("/api/results/{analysis_id}/mitre", tags=["Results"], summary="Get MITRE ATT&CK/CAPEC/D3FEND mappings")
+async def get_mitre_mappings(analysis_id: str, _auth=Depends(verify_api_key)):
+    """Get MITRE ATT&CK, CAPEC, and D3FEND mappings for an analysis."""
+    result = _results.get(analysis_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+
+    from agentictm.agents.mitre_mapper import map_all_threats
+    threats = result.get("threats_final", [])
+    if not threats:
+        return {"mappings": [], "summary": {"total_threats": 0}}
+
+    mappings = map_all_threats(threats)
+    attack_count = sum(len(m.get("attack_techniques", [])) for m in mappings)
+    capec_count = sum(len(m.get("capec_patterns", [])) for m in mappings)
+    d3fend_count = sum(len(m.get("d3fend_techniques", [])) for m in mappings)
+
+    return {
+        "mappings": mappings,
+        "summary": {
+            "total_threats": len(threats),
+            "attack_techniques_mapped": attack_count,
+            "capec_patterns_mapped": capec_count,
+            "d3fend_techniques_mapped": d3fend_count,
+        },
+    }
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Agente: Attack Tree Analyst -- Fase II + Fase II.5.
+"""Agent: Attack Tree Analyst -- Phase II + Phase II.5.
 
 Dual Attack Tree approach:
   1. attack_tree_initial: First pass from user input + architecture model only
@@ -367,7 +367,7 @@ def run_attack_tree_analyst(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: Initial Attack Tree Analyst (Phase II, parallel)."""
+    """LangGraph node: Initial Attack Tree Analyst (Phase II, parallel)."""
     logger.info("[Attack Tree Initial] Starting first-pass analysis...")
     human_prompt = _build_initial_prompt(state)
     t0 = time.perf_counter()
@@ -417,7 +417,7 @@ def run_attack_tree_enriched(
     state: ThreatModelState,
     llm: BaseChatModel,
 ) -> dict:
-    """Nodo de LangGraph: Enriched Attack Tree (Phase II.5, after debate).
+    """LangGraph node: Enriched Attack Tree (Phase II.5, after debate).
 
     This agent runs AFTER all other analysts and the Red/Blue debate,
     incorporating their findings into richer, more complete attack trees.

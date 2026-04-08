@@ -1,15 +1,15 @@
-"""Agente: DREAD Validator — Fase III.5: Validación de severidad.
+"""Agent: DREAD Validator — Phase III.5: Severity validation.
 
-Revisa los threats finales producidos por el Threat Synthesizer y
-valida/ajusta los DREAD scores usando un análisis profundo del
-sistema, considerando:
-  - El contexto original del usuario (prompt + archivos)
-  - La arquitectura parseada
-  - Los reportes de todas las metodologías
-  - El debate Red/Blue
-  - El enriched attack tree
+Reviews the final threats produced by the Threat Synthesizer and
+validates/adjusts the DREAD scores using a deep analysis of the
+system, considering:
+  - The original user context (prompt + files)
+  - The parsed architecture
+  - Reports from all methodologies
+  - The Red/Blue debate
+  - The enriched attack tree
 
-Este es un agente Deep Thinker — usa el modelo más capaz.
+This is a Deep Thinker agent — uses the most capable model.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING
 
 from agentictm.agents.base import invoke_agent, extract_json_from_response
 from agentictm.rag.tools import VALIDATOR_TOOLS
+from agentictm.logging import with_logging_context
 from agentictm.state import ThreatModelState
 
 if TYPE_CHECKING:
@@ -347,11 +348,11 @@ def run_dread_validator(
     llm: BaseChatModel,
     config: AgenticTMConfig | None = None,
 ) -> dict:
-    """Nodo de LangGraph: DREAD Validator (Deep Thinker — full-context enriched prompt).
+    """LangGraph node: DREAD Validator (Deep Thinker — full-context enriched prompt).
 
-    Lee: threats_final, raw_input, system_description, components, data_flows,
-         trust_boundaries, methodology_reports, debate_history
-    Escribe: threats_final (overwrite with validated scores)
+    Reads: threats_final, raw_input, system_description, components, data_flows,
+           trust_boundaries, methodology_reports, debate_history
+    Writes: threats_final (overwrite with validated scores)
     """
     threats_final = state.get("threats_final", [])
     if not threats_final:
@@ -387,7 +388,7 @@ def run_dread_validator(
 
     try:
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(_run_llm)
+            future = executor.submit(with_logging_context(_run_llm))
             response = future.result(timeout=DREAD_TIMEOUT)
     except concurrent.futures.TimeoutError:
         logger.error("[DREAD Validator] TIMEOUT after %ds -- keeping original threats", DREAD_TIMEOUT)
@@ -419,10 +420,10 @@ def run_dread_validator(
             try:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
                     retry_future = executor.submit(
-                        lambda: invoke_agent(
+                        with_logging_context(lambda: invoke_agent(
                             llm, effective_system_prompt, mini_prompt,
                             agent_name="DREAD-Retry",
-                        )
+                        ))
                     )
                     retry_resp = retry_future.result(timeout=int(remaining_budget * 0.8))
                 parsed = extract_json_from_response(retry_resp)
