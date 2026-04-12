@@ -25,6 +25,12 @@ services:
     #           count: all
     #           capabilities: [gpu]
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/api/tags >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
 
   # ── AgenticTM application ──
   app:
@@ -37,15 +43,27 @@ services:
     environment:
       - AGENTICTM_OLLAMA_URL=http://ollama:11434
       - AGENTICTM_OUTPUT_DIR=/app/output
+      - AGENTICTM_OUTPUT=/app/output
       # Uncomment and set an API key to enable auth:
       # - AGENTICTM_API_KEY=your-secret-key-here
     volumes:
       - ./output:/app/output
       - ./data:/app/data
       - ./rag:/app/rag
+      - ./logs:/app/logs
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    read_only: true
+    tmpfs:
+      - /tmp:size=512M
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
       interval: 30s

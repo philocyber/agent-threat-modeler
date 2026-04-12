@@ -275,7 +275,7 @@ class PipelineFileHandler(logging.Handler):
         super().__init__(level=logging.DEBUG)
         from pathlib import Path
         self._logs_dir = Path(logs_dir)
-        self._logs_dir.mkdir(exist_ok=True)
+        self._logs_dir.mkdir(parents=True, exist_ok=True)
         self._path = self._logs_dir / f"{correlation_id}.jsonl"
         self._file = open(self._path, "a", encoding="utf-8")
         self._cid = correlation_id

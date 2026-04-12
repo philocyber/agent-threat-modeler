@@ -1,5 +1,6 @@
 {
-  "_comment": "Copy this file to config.json and adjust to your hardware. Run 'python cli.py init' to auto-generate a config tuned to your system RAM.",
+  "_comment": "Copy to config.json and adjust to your hardware. Run 'python cli.py init' for auto-tuning.",
+  "_docker_note": "For Docker: base_url is overridden by AGENTICTM_OLLAMA_URL env var (http://ollama:11434).",
 
   "quick_thinker": {
     "provider": "ollama",
@@ -81,8 +82,14 @@
   },
 
   "security": {
+    "api_key": null,
     "max_input_length": 100000,
-    "max_upload_size_mb": 10
+    "max_upload_size_mb": 10,
+    "allowed_extensions": [
+      ".txt", ".md", ".pdf", ".doc", ".docx", ".csv", ".json",
+      ".yaml", ".yml", ".png", ".jpg", ".jpeg", ".gif",
+      ".bmp", ".webp", ".svg", ".tiff"
+    ]
   },
 
   "output_dir": "./output"

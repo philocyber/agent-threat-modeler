@@ -100,7 +100,11 @@ class ResultStore:
             row = await cursor.fetchone()
         if row is None:
             return None
-        return json.loads(row[0])
+        try:
+            return json.loads(row[0])
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Corrupt JSON for analysis %s in database", analysis_id)
+            return None
 
     async def list_all(self) -> list[dict[str, Any]]:
         """Return lightweight metadata for all stored results (no full JSON)."""

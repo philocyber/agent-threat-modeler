@@ -237,7 +237,32 @@ _uploads: dict[str, Any] = {}  # upload_id → {path, filename, is_image}
 _store = ResultStore(Path("data/results.db"))
 
 # Output directory for persistent results
-_OUTPUT_DIR = Path(os.environ.get("AGENTICTM_OUTPUT", "./output"))
+_OUTPUT_DIR = Path(os.environ.get("AGENTICTM_OUTPUT", os.environ.get("AGENTICTM_OUTPUT_DIR", "./output")))
+
+_STATUS_MAX_AGE_HOURS = 24
+_STATUS_MAX_ENTRIES = 500
+
+
+def _prune_stale_status() -> None:
+    """Remove completed/failed entries older than _STATUS_MAX_AGE_HOURS."""
+    if len(_analysis_status) <= _STATUS_MAX_ENTRIES:
+        return
+    now = datetime.now()
+    stale = []
+    for aid, info in _analysis_status.items():
+        if info.get("status") not in ("completed", "failed"):
+            continue
+        completed_at = info.get("completed_at")
+        if not completed_at:
+            continue
+        try:
+            ts = datetime.fromisoformat(completed_at)
+            if (now - ts).total_seconds() > _STATUS_MAX_AGE_HOURS * 3600:
+                stale.append(aid)
+        except (ValueError, TypeError):
+            stale.append(aid)
+    for aid in stale:
+        _analysis_status.pop(aid, None)
 
 
 def _append_live_event(analysis_id: str, event: dict[str, Any]) -> None:
@@ -641,11 +666,14 @@ class SSELogCapture(logging.Handler):
         super().__init__()
         self._queue = queue
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._closed = False
 
     def set_loop(self, loop: asyncio.AbstractEventLoop):
         self._loop = loop
 
     def emit(self, record: logging.LogRecord):
+        if self._closed:
+            return
         try:
             msg = self.format(record)
             event_data = {
@@ -655,17 +683,18 @@ class SSELogCapture(logging.Handler):
                 "agent": _extract_agent_name(msg),
                 "timestamp": datetime.now().isoformat(),
             }
-            if self._loop and self._loop.is_running():
+            if self._loop and self._loop.is_running() and not self._loop.is_closed():
                 self._loop.call_soon_threadsafe(
                     self._queue.put_nowait, event_data
                 )
         except RuntimeError:
-            # Queue full or loop closed — expected during shutdown
             pass
-        except Exception as exc:
-            # Log to stderr so we can diagnose lost events
-            import sys
-            print(f"[SSELogCapture] emit error: {exc}", file=sys.stderr)
+        except Exception:
+            pass
+
+    def close(self) -> None:
+        self._closed = True
+        super().close()
 
 
 class AnalysisEventCapture(logging.Handler):
@@ -789,7 +818,13 @@ async def health():
 @app.get("/api/ready", tags=["Health"], summary="Readiness probe (checks Ollama connectivity)")
 async def readiness():
     """Deep readiness check — verifies Ollama is reachable."""
-    import httpx
+    try:
+        import httpx
+    except ImportError:
+        return JSONResponse(
+            status_code=503,
+            content={"ready": False, "ollama": "httpx not installed", "timestamp": datetime.now().isoformat()},
+        )
     ollama_url = _config.quick_thinker.base_url.rstrip("/")
     try:
         async with httpx.AsyncClient(timeout=5) as client:
@@ -797,9 +832,10 @@ async def readiness():
             resp.raise_for_status()
         return {"ready": True, "ollama": "connected", "timestamp": datetime.now().isoformat()}
     except Exception as exc:
+        logger.warning("[Readiness] Ollama check failed: %s", exc)
         return JSONResponse(
             status_code=503,
-            content={"ready": False, "ollama": str(exc), "timestamp": datetime.now().isoformat()},
+            content={"ready": False, "ollama": "unreachable", "timestamp": datetime.now().isoformat()},
         )
 
 
@@ -850,9 +886,15 @@ _global_metrics: dict[str, Any] = {
 }
 
 
+def _record_global_analysis_start() -> None:
+    """Record that an analysis has started."""
+    _global_metrics["analyses_by_status"]["running"] += 1
+
+
 def _record_global_analysis(duration: float, success: bool) -> None:
     """Record metrics for a completed analysis run."""
     _global_metrics["total_analyses"] += 1
+    _global_metrics["analyses_by_status"]["running"] = max(0, _global_metrics["analyses_by_status"]["running"] - 1)
     if success:
         _global_metrics["completed_analyses"] += 1
         _global_metrics["analyses_by_status"]["completed"] += 1
@@ -914,7 +956,7 @@ async def quality_evaluation(analysis_id: str, _auth=Depends(verify_api_key)):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     from agentictm.agents.quality_judge import evaluate_threat_model
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     system_desc = result.get("system_description", result.get("raw_input", ""))
 
     report = evaluate_threat_model(threats, system_desc)
@@ -951,7 +993,7 @@ async def compliance_mapping(analysis_id: str, _auth=Depends(verify_api_key)):
 
     from agentictm.agents.compliance_mapper import map_threats_to_controls, generate_compliance_summary
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     mappings = map_threats_to_controls(threats)
     summary = generate_compliance_summary(mappings)
 
@@ -968,6 +1010,29 @@ async def compliance_mapping(analysis_id: str, _auth=Depends(verify_api_key)):
 
 # Session storage for triage conversations
 _triage_sessions: dict[str, dict[str, Any]] = {}
+_TRIAGE_MAX_AGE_HOURS = 4
+_TRIAGE_MAX_ENTRIES = 200
+
+
+def _prune_stale_triage() -> None:
+    """Remove triage sessions older than _TRIAGE_MAX_AGE_HOURS."""
+    if len(_triage_sessions) <= _TRIAGE_MAX_ENTRIES:
+        return
+    now = datetime.now()
+    stale = []
+    for sid, info in _triage_sessions.items():
+        created_at = info.get("created_at")
+        if not created_at:
+            stale.append(sid)
+            continue
+        try:
+            ts = datetime.fromisoformat(created_at)
+            if (now - ts).total_seconds() > _TRIAGE_MAX_AGE_HOURS * 3600:
+                stale.append(sid)
+        except (ValueError, TypeError):
+            stale.append(sid)
+    for sid in stale:
+        _triage_sessions.pop(sid, None)
 
 
 class TriageRequest(BaseModel):
@@ -991,6 +1056,8 @@ async def triage_input_endpoint(request: TriageRequest, _auth=Depends(verify_api
     for more accurate threat modeling.
     """
     from agentictm.agents.input_triage import triage_input
+
+    _prune_stale_triage()
 
     # Try to use the quick LLM for question generation
     llm = None
@@ -1087,8 +1154,8 @@ async def diff_threat_models_endpoint(a: str, b: str, _auth=Depends(verify_api_k
 
     from agentictm.agents.diff_engine import diff_threat_models
 
-    threats_a = result_a.get("threats_final", [])
-    threats_b = result_b.get("threats_final", [])
+    threats_a = result_a.get("threats_final") or []
+    threats_b = result_b.get("threats_final") or []
 
     diff = diff_threat_models(threats_a, threats_b)
 
@@ -1134,7 +1201,7 @@ async def get_analysis_status(analysis_id: str, _auth=Depends(verify_api_key)):
                 "analysis_id": analysis_id,
                 "status": "completed",
                 "system_name": result.get("system_name", ""),
-                "threats_count": len(result.get("threats_final", [])),
+                "threats_count": len(result.get("threats_final") or []),
                 "started_at": result.get("started_at", ""),
                 "completed_at": result.get("completed_at", ""),
                 "duration_seconds": result.get("duration_seconds", 0),
@@ -1192,11 +1259,19 @@ async def upload_to_knowledge_base(
         raise HTTPException(status_code=400, detail=f"Invalid category. Must be one of: {ALL_STORES}")
 
     filename = _sanitize_filename(file.filename or "document.pdf")
+
+    max_kb_size = _config.security.max_upload_size if hasattr(_config.security, "max_upload_size") else 50 * 1024 * 1024
+    content = await file.read()
+    if len(content) > max_kb_size:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({len(content):,} bytes). Maximum: {max_kb_size:,} bytes.",
+        )
+
     target_dir = Path(_config.rag.knowledge_base_path) / category
     target_dir.mkdir(parents=True, exist_ok=True)
 
     target_path = target_dir / filename
-    content = await file.read()
     target_path.write_bytes(content)
 
     return {
@@ -1248,7 +1323,8 @@ async def reindex_knowledge_base(
             "result": result,
         }
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Reindexing failed: {exc}")
+        logger.error("[Reindex] Failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Reindexing failed. Check server logs for details.")
 
 
 @app.get("/api/knowledge-base/categories", tags=["Knowledge Base"], summary="List KB categories with doc counts")
@@ -1379,6 +1455,8 @@ async def analyze(
     are emitted containing partial LLM output as it is generated.
     """
 
+    _prune_stale_status()
+
     # --- Rate limiting (P5) ---
     rate_limiter = get_analysis_limiter()
     rate_limiter.check(raw_request)
@@ -1481,6 +1559,7 @@ async def analyze(
     _record_live_event(analysis_id, start_event, queue, loop)
 
     async def _run_analysis_background():
+        _record_global_analysis_start()
         handler = AnalysisEventCapture(analysis_id, queue)
         handler.set_loop(loop)
         handler.setLevel(logging.DEBUG)
@@ -1510,7 +1589,7 @@ async def analyze(
                     getattr(request, "custom_model_size", None),
                 )
 
-            threats_count = len(result.get("threats_final", []))
+            threats_count = len(result.get("threats_final") or [])
             result["live_execution"] = list(_analysis_status.get(analysis_id, {}).get("live_execution", []))
 
             if result.get("clarification_needed") and not result.get("user_answers"):
@@ -1607,24 +1686,22 @@ async def analyze(
                 logger.warning("Could not persist live execution timeline: %s", save_live_exc)
 
         except Exception as exc:
-            import traceback
-            tb_str = traceback.format_exc()
-            logger.error("Analysis failed with exception:\n%s", tb_str)
+            logger.exception("Analysis failed [%s]: %s", analysis_id, exc)
             _record_global_analysis(0, success=False)
             if analysis_id in _analysis_status:
                 _analysis_status[analysis_id].update({
                     "status": "failed",
-                    "error": str(exc),
+                    "error": "internal_error",
                     "completed_at": datetime.now().isoformat(),
                 })
             _record_live_event(analysis_id, {
                 "type": "error",
-                "message": f"{type(exc).__name__}: {exc}",
-                "traceback": tb_str,
+                "message": "Analysis failed due to an internal error. Check server logs for details.",
                 "timestamp": datetime.now().isoformat(),
             }, queue, loop)
         finally:
             root_logger.removeHandler(handler)
+            handler.close()
             for uid in request.upload_ids:
                 upload_meta = _uploads.pop(uid, None)
                 if upload_meta:
@@ -1765,7 +1842,7 @@ def _run_analysis_sync(
     result["scan_mode"] = scan_mode
     elapsed = time.perf_counter() - t0
 
-    threats_count = len(result.get("threats_final", []))
+    threats_count = len(result.get("threats_final") or [])
 
     logger.info("=" * 70)
     logger.info("  ANALYSIS COMPLETE [%s]  in %.1fs", analysis_id, elapsed)
@@ -1892,7 +1969,7 @@ async def _run_analysis_with_token_streaming(
     result["scan_mode"] = scan_mode
     result["duration_seconds"] = round(elapsed, 2)
 
-    threats_count = len(result.get("threats_final", []))
+    threats_count = len(result.get("threats_final") or [])
     _record_global_analysis(elapsed, success=True)
 
     if analysis_id in _analysis_status:
@@ -1979,7 +2056,7 @@ async def review_threats(analysis_id: str, body: ThreatReviewRequest, _auth=Depe
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     threat_map = {t.get("id", ""): t for t in threats}
 
     applied: list[dict] = []
@@ -2099,7 +2176,7 @@ async def list_results(
             "completed_at": r.get("completed_at", ""),
             "duration_seconds": r.get("duration_seconds", 0),
             "categories": r.get("threat_categories", []),
-            "threats_count": len(r.get("threats_final", [])),
+            "threats_count": len(r.get("threats_final") or []),
         })
     # Newest first
     items.sort(key=lambda x: x.get("analysis_date", ""), reverse=True)
@@ -2129,7 +2206,7 @@ async def get_result(analysis_id: str, _auth=Depends(verify_api_key)):
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
 
     # Extract attack tree mermaid diagrams from methodology reports
     attack_tree_mermaid = []
@@ -2408,7 +2485,7 @@ async def justify_threat(analysis_id: str, threat_id: str, body: _JustifyRequest
             detail=f"Invalid decision. Must be one of: {', '.join(sorted(_VALID_DECISIONS))}",
         )
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     target = None
     for t in threats:
         if t.get("id", "") == threat_id:
@@ -2435,13 +2512,13 @@ async def justify_threat(analysis_id: str, threat_id: str, body: _JustifyRequest
             if result_path.exists():
                 with open(result_path, "r", encoding="utf-8") as f:
                     disk_data = json.load(f)
-                disk_threats = disk_data.get("threats_final", [])
+                disk_threats = disk_data.get("threats_final") or []
                 for dt in disk_threats:
                     if dt.get("id", "") == threat_id:
                         dt["justification"] = justification
                         break
                 with open(result_path, "w", encoding="utf-8") as f:
-                    json.dump(disk_data, f, ensure_ascii=False, indent=2)
+                    json.dump(disk_data, f, ensure_ascii=False, indent=2, default=str)
         except Exception as e:
             logger.warning("Could not persist justification to disk: %s", e)
 
@@ -2471,7 +2548,7 @@ async def remove_justification(analysis_id: str, threat_id: str, _auth=Depends(v
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     target = None
     for t in threats:
         if t.get("id", "") == threat_id:
@@ -2491,12 +2568,12 @@ async def remove_justification(analysis_id: str, threat_id: str, _auth=Depends(v
             if result_path.exists():
                 with open(result_path, "r", encoding="utf-8") as f:
                     disk_data = json.load(f)
-                for dt in disk_data.get("threats_final", []):
+                for dt in disk_data.get("threats_final") or []:
                     if dt.get("id", "") == threat_id:
                         dt["justification"] = None
                         break
                 with open(result_path, "w", encoding="utf-8") as f:
-                    json.dump(disk_data, f, ensure_ascii=False, indent=2)
+                    json.dump(disk_data, f, ensure_ascii=False, indent=2, default=str)
         except Exception as e:
             logger.warning("Could not persist justification removal: %s", e)
 
@@ -2521,7 +2598,7 @@ async def update_threat_field(analysis_id: str, threat_id: str, body: ThreatFiel
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     target = None
     for t in threats:
         if t.get("id", "") == threat_id:
@@ -2540,12 +2617,12 @@ async def update_threat_field(analysis_id: str, threat_id: str, body: ThreatFiel
             if result_path.exists():
                 with open(result_path, "r", encoding="utf-8") as f:
                     disk_data = json.load(f)
-                for dt in disk_data.get("threats_final", []):
+                for dt in disk_data.get("threats_final") or []:
                     if dt.get("id", "") == threat_id:
                         dt[body.field] = body.value
                         break
                 with open(result_path, "w", encoding="utf-8") as f:
-                    json.dump(disk_data, f, ensure_ascii=False, indent=2)
+                    json.dump(disk_data, f, ensure_ascii=False, indent=2, default=str)
         except Exception as e:
             logger.warning("Could not persist field update: %s", e)
 
@@ -2564,7 +2641,7 @@ async def download_justified_csv(analysis_id: str, _auth=Depends(verify_api_key)
     if not result:
         raise HTTPException(status_code=404, detail="Analysis not found")
 
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     if not threats:
         raise HTTPException(status_code=404, detail="No threats found")
 
@@ -2675,9 +2752,9 @@ async def get_analysis_metrics(analysis_id: str, _auth=Depends(verify_api_key)):
     return {
         "analysis_id": analysis_id,
         "agent_metrics": get_agent_metrics(),
-        "threats_count": len(result.get("threats_final", [])),
+        "threats_count": len(result.get("threats_final") or []),
         "justified_count": sum(
-            1 for t in result.get("threats_final", [])
+            1 for t in result.get("threats_final") or []
             if t.get("justification")
         ),
     }
@@ -2778,7 +2855,7 @@ async def get_mitre_mappings(analysis_id: str, _auth=Depends(verify_api_key)):
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     from agentictm.agents.mitre_mapper import map_all_threats
-    threats = result.get("threats_final", [])
+    threats = result.get("threats_final") or []
     if not threats:
         return {"mappings": [], "summary": {"total_threats": 0}}
 
@@ -2833,7 +2910,7 @@ async def get_analysis_log(analysis_id: str, _auth=Depends(verify_api_key)):
 
 def _sse_event(data: dict) -> str:
     """Format a dict as an SSE event string."""
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+    return f"data: {json.dumps(data, ensure_ascii=False, default=str)}\n\n"
 
 
 # ---------------------------------------------------------------------------

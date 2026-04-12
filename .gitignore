@@ -41,6 +41,9 @@ logs/
 config.json
 .env
 
+# Docker smoke tests (local only — do not push)
+tests/docker/
+
 # Node / Electron
 node_modules/
 out/
